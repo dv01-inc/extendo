@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Extendo</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <nav role="tablist">
+      <button role="tab" id="tab-downloads" aria-controls="panel-downloads" aria-selected="true">Downloads</button>
+      <button role="tab" id="tab-issues" aria-controls="panel-issues" aria-selected="false">
+        Issues <span id="issue-count" class="badge" hidden></span>
+      </button>
+      <button role="tab" id="tab-mappings" aria-controls="panel-mappings" aria-selected="false">Mappings</button>
+      <span id="version"></span>
+    </nav>
+
+    <section role="tabpanel" id="panel-downloads" aria-labelledby="tab-downloads">
+      <header>
+        <button id="run">Build table</button>
+        <button id="copy" disabled>Copy (TSV)</button>
+      </header>
+      <p id="status">Log into SecOps, open citi, then click “Build table”.</p>
+      <div id="prompt" hidden>
+        <span id="prompt-text"></span>
+        <button id="prompt-yes">Yes</button>
+        <button id="prompt-no">No</button>
+      </div>
+      <div id="result"></div>
+    </section>
+
+    <section role="tabpanel" id="panel-issues" aria-labelledby="tab-issues" hidden>
+      <header>
+        <button id="issues-refresh">Fetch deals from SecOps</button>
+      </header>
+      <p id="issues-status">SecOps deals that are missing from the deal map show up here.</p>
+      <div id="issues-result"></div>
+    </section>
+
+    <section role="tabpanel" id="panel-mappings" aria-labelledby="tab-mappings" hidden>
+      <form id="map-add" class="map-form">
+        <input id="map-add-issuer" placeholder="Issuer" list="issuer-list" required />
+        <input id="map-add-series" placeholder="Series" required />
+        <input id="map-add-deal" placeholder="SecOps deal" required />
+        <button type="submit">Add</button>
+      </form>
+      <datalist id="issuer-list"></datalist>
+      <header>
+        <input id="map-filter" type="search" placeholder="Filter mappings…" />
+        <button id="map-export">Export JSON</button>
+        <button id="map-import">Import JSON</button>
+        <button id="map-reset">Reset</button>
+        <input id="map-import-file" type="file" accept=".json,application/json" hidden />
+      </header>
+      <p id="map-status"></p>
+      <div id="map-result"></div>
+    </section>
+
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>

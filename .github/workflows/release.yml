@@ -1,0 +1,79 @@
+# Runs when a PR is merged into main: bumps manifest.json's version, tags the commit, and
+# publishes a GitHub Release with a zip of the extension.
+#
+# The manifest in the repo is always the dev build ("Extendo (dev)", version_name "x.y.z-dev").
+# Only the zip gets the release name and a plain version.
+#
+# Bump size comes from the PR's labels: "major", "minor", else patch. Label a PR "no-release"
+# to skip it.
+name: Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.event.pull_request.merged == true && !contains(github.event.pull_request.labels.*.name, 'no-release')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Bump version in manifest.json
+        id: bump
+        env:
+          LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
+        run: |
+          if   jq -e 'index("major")' <<< "$LABELS" > /dev/null; then type=major
+          elif jq -e 'index("minor")' <<< "$LABELS" > /dev/null; then type=minor
+          else type=patch; fi
+
+          IFS=. read -r major minor patch <<< "$(jq -r .version manifest.json)"
+          case "$type" in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
+          esac
+          version="$major.$minor.$patch"
+
+          jq --arg v "$version" '.version = $v | .version_name = "\($v)-dev"' manifest.json > manifest.tmp
+          mv manifest.tmp manifest.json
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Bumping $type -> $version"
+
+      - name: Commit and tag
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898799+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore: release v$VERSION"
+          git tag "v$VERSION"
+          git push origin main "v$VERSION"
+
+      - name: Build release zip
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          mkdir -p dist/extendo
+          cp -r *.js *.html *.css data dist/extendo/
+          jq '.name = "Extendo" | del(.version_name)' manifest.json > dist/extendo/manifest.json
+          (cd dist && zip -r "extendo-v$VERSION.zip" extendo)
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          gh release create "v$VERSION" "dist/extendo-v$VERSION.zip" \
+            --title "v$VERSION" --generate-notes
