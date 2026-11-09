@@ -6,10 +6,14 @@
 #
 # Bump size comes from the PR's labels: "major", "minor", else patch. Label a PR "no-release"
 # to skip it.
+#
+# pull_request_target (not pull_request) so merged PRs from forks also get a writable token.
+# Safe here because the job only checks out main after the merge and never runs PR code.
+# Do not add a checkout of the PR's head ref to this workflow.
 name: Release
 
 on:
-  pull_request:
+  pull_request_target:
     types: [closed]
     branches: [main]
 
@@ -38,7 +42,14 @@ jobs:
           elif jq -e 'index("minor")' <<< "$LABELS" > /dev/null; then type=minor
           else type=patch; fi
 
-          IFS=. read -r major minor patch <<< "$(jq -r .version manifest.json)"
+          current="$(jq -r .version manifest.json)"
+          if ! [[ "$current" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::manifest.json version '$current' is not MAJOR.MINOR.PATCH"
+            exit 1
+          fi
+          IFS=. read -r major minor patch <<< "$current"
+          # 10# forces base 10, so a component like "08" isn't read as octal.
+          major=$((10#$major)); minor=$((10#$minor)); patch=$((10#$patch))
           case "$type" in
             major) major=$((major + 1)); minor=0; patch=0 ;;
             minor) minor=$((minor + 1)); patch=0 ;;

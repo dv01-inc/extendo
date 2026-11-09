@@ -54,40 +54,62 @@ async function findTab(urlMatch) {
 }
 
 // Run the API call inside a SecOps tab (most recently used first) so it carries B's
-// session. If no tab will run it (asleep, showing an error page, etc.), call the API from
-// the extension itself with the Authorization header captured in background.js.
+// session. A tab that can't run it, or whose request fails (e.g. signed out), doesn't stop
+// the search: the next tab is tried. If none succeeds, call the API from the extension
+// itself with the Authorization header captured in background.js.
+//
+// The captured token is only sent to the tab it came from (background.js clears it when
+// that tab's login ends), so one tab's login is never replayed in another.
 async function callPageB(pageBAuth) {
   const tabs = await chrome.tabs.query({ url: CONFIG.pageB.urlMatch });
   tabs.sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0));
   const failures = [];
+  // The most useful failed response so far: an auth error beats any other.
+  let errorResult;
+  const keepError = (result) => {
+    const isAuth = (r) => r?.status === 401 || r?.status === 403;
+    if (!errorResult || (isAuth(result) && !isAuth(errorResult))) errorResult = result;
+  };
+
   for (const tab of tabs) {
     if (tab.discarded) {
       failures.push(`tab ${tab.id} asleep`);
       continue;
     }
+    let result;
     try {
-      const [{ result }] = await chrome.scripting.executeScript({
+      [{ result }] = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
         world: 'MAIN',
         func: fetchFromB,
-        args: [CONFIG.pageB.apiUrl, pageBAuth?.value],
+        args: [CONFIG.pageB.apiUrl, pageBAuth?.tabId === tab.id ? pageBAuth.value : undefined],
       });
-      return result;
     } catch (e) {
       failures.push(`tab ${tab.id} (${tab.url}, status ${tab.status}): ${e.message}`);
+      continue;
     }
+    if (!result) {
+      failures.push(`tab ${tab.id}: no result (page navigated?)`);
+      continue;
+    }
+    if (!result.error) return result;
+    failures.push(`tab ${tab.id}: ${result.error}`);
+    keepError(result);
   }
   console.log('Extendo: SecOps tabs', tabs.length, 'failures', failures);
 
-  if (!pageBAuth) {
-    throw new Error(
-      tabs.length
-        ? 'Could not run in the SecOps tab and no login token captured yet. Reload the SecOps tab, then retry.'
-        : 'No SecOps tab found. Open SecOps and log in first.',
-    );
+  if (pageBAuth) {
+    console.log('Extendo: calling SecOps API directly from the extension');
+    const result = await fetchFromB(CONFIG.pageB.apiUrl, pageBAuth.value);
+    if (!result.error) return result;
+    keepError(result);
   }
-  console.log('Extendo: calling SecOps API directly from the extension');
-  return fetchFromB(CONFIG.pageB.apiUrl, pageBAuth.value);
+  if (errorResult) return errorResult;
+  throw new Error(
+    tabs.length
+      ? 'Could not run in the SecOps tab and no login token captured yet. Reload the SecOps tab, then retry.'
+      : 'No SecOps tab found. Open SecOps and log in first.',
+  );
 }
 
 async function loadDeals() {
@@ -465,6 +487,22 @@ function entryInput(entry, field) {
       setStatus('Mapping fields cannot be empty. Use ✕ to remove a row.', true, 'map-status');
       return;
     }
+    // One deal per (issuer, series): refuse an edit that would duplicate another row's key,
+    // since the join would silently use only one of them.
+    if (field !== 'dealId') {
+      const next = { ...entry, [field]: value };
+      const key = mapKey(next.issuer, next.series);
+      const clash = mapEntries.find((m) => m !== entry && mapKey(m.issuer, m.series) === key);
+      if (clash) {
+        input.value = entry[field];
+        setStatus(
+          `${next.issuer} ${next.series} is already mapped to ${clash.dealId}. Edit or remove that row instead.`,
+          true,
+          'map-status',
+        );
+        return;
+      }
+    }
     const before = entry[field];
     entry[field] = value;
     await commitMap(`Changed ${field} "${before}" → "${value}"`);
@@ -559,16 +597,36 @@ $('map-export').addEventListener('click', () => {
   setStatus('Exported. Replace data/deal-map.json with it to make these mappings the default.', false, 'map-status');
 });
 
+// Validate the whole file before anything replaces the current map: every entry needs
+// non-empty text for issuer, series and dealId (a numeric dealId is allowed), and no two
+// entries may share an (issuer, series) key.
+function parseImportedMap(entries) {
+  if (!Array.isArray(entries)) throw new Error('expected an array of {issuer, series, dealId}.');
+  const text = (v) => (typeof v === 'string' ? v.trim() : '');
+  const seen = new Map();
+  return entries.map((m, i) => {
+    const entry = {
+      issuer: text(m?.issuer),
+      series: text(m?.series),
+      dealId: typeof m?.dealId === 'number' ? String(m.dealId) : text(m?.dealId),
+    };
+    if (!entry.issuer || !entry.series || !entry.dealId) {
+      throw new Error(`entry ${i + 1} needs non-empty issuer, series and dealId.`);
+    }
+    const key = mapKey(entry.issuer, entry.series);
+    if (seen.has(key)) throw new Error(`entries ${seen.get(key) + 1} and ${i + 1} both map ${entry.issuer} ${entry.series}.`);
+    seen.set(key, i);
+    return entry;
+  });
+}
+
 $('map-import').addEventListener('click', () => $('map-import-file').click());
 $('map-import-file').addEventListener('change', async (e) => {
   const [file] = e.target.files;
   e.target.value = '';
   if (!file) return;
   try {
-    const entries = JSON.parse(await file.text());
-    const valid = Array.isArray(entries) && entries.every((m) => m && m.issuer && m.series && m.dealId);
-    if (!valid) throw new Error('expected an array of {issuer, series, dealId}.');
-    mapEntries = entries.map(({ issuer, series, dealId }) => ({ issuer, series, dealId: String(dealId) }));
+    mapEntries = parseImportedMap(JSON.parse(await file.text()));
     renderMappings();
     await commitMap(`Imported ${file.name}`);
   } catch (err) {

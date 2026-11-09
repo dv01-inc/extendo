@@ -12,12 +12,23 @@ export async function loadMap() {
   return stored ?? loadBundledMap();
 }
 
-export async function saveMap(entries) {
-  await chrome.storage.local.set({ [KEY]: entries });
+// Writes run one at a time in call order, so a save that started before a reset can't
+// land after it and bring the discarded edits back.
+let writes = Promise.resolve();
+function queueWrite(fn) {
+  const result = writes.then(fn);
+  writes = result.catch(() => {});
+  return result;
+}
+
+export function saveMap(entries) {
+  // Snapshot now: the caller may keep mutating the array while this waits its turn.
+  const snapshot = entries.map((m) => ({ ...m }));
+  return queueWrite(() => chrome.storage.local.set({ [KEY]: snapshot }));
 }
 
 export async function resetMap() {
-  await chrome.storage.local.remove(KEY);
+  await queueWrite(() => chrome.storage.local.remove(KEY));
   return loadBundledMap();
 }
 
