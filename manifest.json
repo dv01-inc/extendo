@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Extendo (dev)",
+  "version": "1.0.0",
+  "version_name": "1.0.0-dev",
+  "description": "Joins citi's issuer/series table with deal data from SecOps in a side panel.",
+  "action": {
+    "default_title": "Open Extendo"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "permissions": [
+    "sidePanel",
+    "scripting",
+    "webNavigation",
+    "webRequest",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://sf.citidirect.com/*",
+    "https://secops-dashboard.dv01.cloud/*"
+  ]
+}
