@@ -17,14 +17,14 @@ if (chrome.runtime.getManifest().version_name?.endsWith('-dev')) {
 // The token is tied to the tab it came from and dropped as soon as that login may be over:
 // the tab closes, navigates away from SecOps (e.g. logout to the sign-in page), or SecOps
 // answers with 401. So an old login is never replayed for a new one.
-const SECOPS_ORIGIN = new URL(CONFIG.pageB.apiUrl).origin;
+const SECOPS_ORIGIN = new URL(CONFIG.secOps.apiUrl).origin;
 let lastAuth;
 
 async function clearAuthFor(tabId) {
-  const { pageBAuth } = await chrome.storage.session.get('pageBAuth');
-  if (!pageBAuth || (tabId !== undefined && pageBAuth.tabId !== tabId)) return;
+  const { secOpsAuth } = await chrome.storage.session.get('secOpsAuth');
+  if (!secOpsAuth || (tabId !== undefined && secOpsAuth.tabId !== tabId)) return;
   lastAuth = undefined;
-  await chrome.storage.session.remove('pageBAuth');
+  await chrome.storage.session.remove('secOpsAuth');
 }
 
 chrome.webRequest.onBeforeSendHeaders.addListener(
@@ -34,7 +34,7 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
     const auth = details.requestHeaders?.find((h) => h.name.toLowerCase() === 'authorization')?.value;
     if (!auth || auth === lastAuth) return;
     lastAuth = auth;
-    chrome.storage.session.set({ pageBAuth: { value: auth, tabId: details.tabId, capturedAt: Date.now() } });
+    chrome.storage.session.set({ secOpsAuth: { value: auth, tabId: details.tabId, capturedAt: Date.now() } });
   },
   { urls: [`${SECOPS_ORIGIN}/*`] },
   ['requestHeaders'],

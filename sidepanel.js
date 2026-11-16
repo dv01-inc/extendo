@@ -1,5 +1,5 @@
 import { CONFIG } from './config.js';
-import { downloadLink, extractTable, fetchFromB, findLatestStatement, followLink } from './injected.js';
+import { downloadLink, extractTable, fetchFromSecOps, findLatestStatement, followLink } from './injected.js';
 import { getCell, getField, joinRows, mapKey, project, suggestMapping, unmappedDeals } from './join.js';
 import { isEdited, loadMap, resetMap, saveMap } from './mapstore.js';
 
@@ -20,8 +20,8 @@ function setStatus(text, isError = false, id = 'status') {
 // Show the build in the tab bar, e.g. "v1.0.1" or "v1.0.1-dev" (highlighted).
 {
   const { version, version_name: name = version } = chrome.runtime.getManifest();
-  $('version').textContent = `v${name}`;
-  $('version').classList.toggle('dev', name.endsWith('-dev'));
+  $('version').textContent = `v${name}${CONFIG.mock ? ' · MOCK' : ''}`;
+  $('version').classList.toggle('dev', name.endsWith('-dev') || CONFIG.mock);
 }
 
 // --- Tabs ---
@@ -42,7 +42,7 @@ for (const tab of document.querySelectorAll('[role=tab]')) {
 // silently.
 async function requestHostAccess() {
   const granted = await chrome.permissions.request({ origins: chrome.runtime.getManifest().host_permissions });
-  if (!granted) throw new Error('Extendo needs access to citi and SecOps.');
+  if (!granted) throw new Error('Extendo needs access to Citi and SecOps.');
 }
 
 // Prefer the active matching tab in the focused window, else any matching tab.
@@ -53,15 +53,15 @@ async function findTab(urlMatch) {
   return any;
 }
 
-// Run the API call inside a SecOps tab (most recently used first) so it carries B's
+// Run the API call inside a SecOps tab (most recently used first) so it carries SecOps's
 // session. A tab that can't run it, or whose request fails (e.g. signed out), doesn't stop
 // the search: the next tab is tried. If none succeeds, call the API from the extension
 // itself with the Authorization header captured in background.js.
 //
 // The captured token is only sent to the tab it came from (background.js clears it when
 // that tab's login ends), so one tab's login is never replayed in another.
-async function callPageB(pageBAuth) {
-  const tabs = await chrome.tabs.query({ url: CONFIG.pageB.urlMatch });
+async function callSecOps(secOpsAuth) {
+  const tabs = await chrome.tabs.query({ url: CONFIG.secOps.urlMatch });
   tabs.sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0));
   const failures = [];
   // The most useful failed response so far: an auth error beats any other.
@@ -81,8 +81,8 @@ async function callPageB(pageBAuth) {
       [{ result }] = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
         world: 'MAIN',
-        func: fetchFromB,
-        args: [CONFIG.pageB.apiUrl, pageBAuth?.tabId === tab.id ? pageBAuth.value : undefined],
+        func: fetchFromSecOps,
+        args: [CONFIG.secOps.apiUrl, secOpsAuth?.tabId === tab.id ? secOpsAuth.value : undefined],
       });
     } catch (e) {
       failures.push(`tab ${tab.id} (${tab.url}, status ${tab.status}): ${e.message}`);
@@ -98,9 +98,9 @@ async function callPageB(pageBAuth) {
   }
   console.log('Extendo: SecOps tabs', tabs.length, 'failures', failures);
 
-  if (pageBAuth) {
+  if (secOpsAuth) {
     console.log('Extendo: calling SecOps API directly from the extension');
-    const result = await fetchFromB(CONFIG.pageB.apiUrl, pageBAuth.value);
+    const result = await fetchFromSecOps(CONFIG.secOps.apiUrl, secOpsAuth.value);
     if (!result.error) return result;
     keepError(result);
   }
@@ -113,22 +113,22 @@ async function callPageB(pageBAuth) {
 }
 
 async function loadDeals() {
-  const { pageBAuth } = await chrome.storage.session.get('pageBAuth');
-  const result = await callPageB(pageBAuth);
+  const { secOpsAuth } = await chrome.storage.session.get('secOpsAuth');
+  const result = await callSecOps(secOpsAuth);
   if (result.error) {
     console.log('Extendo: SecOps error', result.error);
     if (result.status === 401 || result.status === 403) {
       throw new Error(
-        pageBAuth
-          ? `SecOps rejected the login token captured ${new Date(pageBAuth.capturedAt).toLocaleTimeString()} ` +
+        secOpsAuth
+          ? `SecOps rejected the login token captured ${new Date(secOpsAuth.capturedAt).toLocaleTimeString()} ` +
               '(probably expired). Reload the SecOps tab, then retry.'
           : 'No SecOps login token captured yet. Reload the SecOps tab so the dashboard makes its API calls, then retry.',
       );
     }
     throw new Error(result.error);
   }
-  let deals = getField(result.data, CONFIG.pageB.dealsPath);
-  if (!CONFIG.pageB.dealsPath && deals && !Array.isArray(deals)) {
+  let deals = getField(result.data, CONFIG.secOps.dealsPath);
+  if (!CONFIG.secOps.dealsPath && deals && !Array.isArray(deals)) {
     deals = Object.values(deals).find(Array.isArray);
   }
   if (!Array.isArray(deals)) throw new Error('SecOps response did not contain a deals array (check dealsPath).');
@@ -136,9 +136,9 @@ async function loadDeals() {
   return deals;
 }
 
-async function loadTableA() {
-  const tab = await findTab(CONFIG.pageA.urlMatch);
-  if (!tab) throw new Error('No citi tab found. Open citi first.');
+async function loadCitiTable() {
+  const tab = await findTab(CONFIG.citi.urlMatch);
+  if (!tab) throw new Error('No Citi tab found. Open Citi first.');
 
   // The table is inside an iframe. Inject frame by frame: with allFrames, one frame on a
   // host we lack permission for fails the whole call.
@@ -149,16 +149,16 @@ async function loadTableA() {
       const [{ result }] = await chrome.scripting.executeScript({
         target: { tabId: tab.id, frameIds: [frame.frameId] },
         func: extractTable,
-        args: [[CONFIG.pageA.issuerColumn, CONFIG.pageA.seriesColumn]],
+        args: [[CONFIG.citi.issuerColumn, CONFIG.citi.seriesColumn]],
       });
       if (result) return { tabId: tab.id, frameId: frame.frameId, rows: result.rows };
     } catch (e) {
       blocked.push(frame.url);
     }
   }
-  console.log('Extendo: citi frames', frames.map((f) => f.url), 'blocked', blocked);
+  console.log('Extendo: Citi frames', frames.map((f) => f.url), 'blocked', blocked);
   throw new Error(
-    `No table with "${CONFIG.pageA.issuerColumn}" and "${CONFIG.pageA.seriesColumn}" columns found on citi.` +
+    `No table with "${CONFIG.citi.issuerColumn}" and "${CONFIG.citi.seriesColumn}" columns found on Citi.` +
       (blocked.length ? ` Frames not readable (add their hosts to host_permissions): ${blocked.join(', ')}` : ''),
   );
 }
@@ -172,7 +172,7 @@ function el(tag, text) {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Try to follow `href` (or run another link action such as downloadLink) in whichever
-// frame of citi currently shows it. Frames are re-listed every time because citi's
+// frame of Citi currently shows it. Frames are re-listed every time because Citi's
 // iframes are replaced as it navigates.
 async function tryFollowLink(tabId, href, action = followLink) {
   const frames = await chrome.webNavigation.getAllFrames({ tabId });
@@ -202,7 +202,7 @@ async function waitAndFollowLink(tabId, href, timeoutMs) {
   return false;
 }
 
-// Poll citi's frames until one shows statement links, or `timeoutMs` passes.
+// Poll Citi's frames until one shows statement links, or `timeoutMs` passes.
 async function waitForStatement(tabId, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -212,7 +212,7 @@ async function waitForStatement(tabId, timeoutMs) {
         const [{ result }] = await chrome.scripting.executeScript({
           target: { tabId, frameIds: [frame.frameId] },
           func: findLatestStatement,
-          args: [CONFIG.pageA.statementLabel],
+          args: [CONFIG.citi.statementLabel],
         });
         if (result) return result;
       } catch {
@@ -242,36 +242,36 @@ function askYesNo(question) {
 $('prompt-yes').addEventListener('click', () => answerPrompt?.(true));
 $('prompt-no').addEventListener('click', () => answerPrompt?.(false));
 
-// After a deal opens on citi, offer its most recent statement for download.
+// After a deal opens on Citi, offer its most recent statement for download.
 async function offerLatestStatement(tabId) {
-  const label = CONFIG.pageA.statementLabel;
+  const label = CONFIG.citi.statementLabel;
   setStatus(`Looking for the latest ${label}…`);
   const statement = await waitForStatement(tabId, 15000);
   if (!statement) {
-    setStatus(`Opened deal on citi. No ${label} found.`);
+    setStatus(`Opened deal on Citi. No ${label} found.`);
     return;
   }
   console.log('Extendo: statement candidates', statement.candidates, 'picked', statement.title);
-  setStatus('Opened deal on citi.');
+  setStatus('Opened deal on Citi.');
   if (!(await askYesNo(`Should we download ${statement.title}?`))) return;
   const ok = await tryFollowLink(tabId, statement.href, downloadLink);
   setStatus(ok ? `Downloading ${statement.title}…` : `Could not find the ${statement.title} link anymore.`, !ok);
 }
 
-// Follow a link from A's table. If citi has moved on from the table (e.g. a previous
+// Follow a link from Citi's table. If Citi has moved on from the table (e.g. a previous
 // click opened a deal), go back until the table is showing again, then follow it.
 const MAX_BACK_STEPS = 3;
-async function openOnPageA(tableA, href) {
-  const { tabId } = tableA;
+async function openOnCiti(citiTable, href) {
+  const { tabId } = citiTable;
   answerPrompt?.(false);
   try {
     let opened = await tryFollowLink(tabId, href);
     for (let step = 1; !opened && step <= MAX_BACK_STEPS; step++) {
-      setStatus('Returning to the deal list on citi…');
+      setStatus('Returning to the deal list on Citi…');
       await chrome.tabs.goBack(tabId);
       opened = await waitAndFollowLink(tabId, href, 8000);
     }
-    if (!opened) throw new Error('could not find the deal list. Go back to it on citi, then retry.');
+    if (!opened) throw new Error('could not find the deal list. Go back to it on Citi, then retry.');
     await chrome.tabs.update(tabId, { active: true });
     await offerLatestStatement(tabId);
   } catch (e) {
@@ -315,12 +315,12 @@ function renderProblems(title, headers, rows) {
   return details;
 }
 
-function render({ matched, unmapped, missingDeal }, tableA) {
+function render({ matched, unmapped, missingDeal }, citiTable) {
   const headers = CONFIG.output.map((c) => c.label);
   const sortCol = CONFIG.output.findIndex((c) => c.sort);
   if (sortCol >= 0) {
     // Sort on the projected text ('true' > 'false'); the sort is stable, so ties keep
-    // citi's order.
+    // Citi's order.
     const dir = CONFIG.output[sortCol].sort === 'desc' ? -1 : 1;
     const key = (m) => project(m, CONFIG.output)[sortCol];
     matched = [...matched].sort((x, y) => dir * key(x).localeCompare(key(y), undefined, { numeric: true }));
@@ -330,8 +330,8 @@ function render({ matched, unmapped, missingDeal }, tableA) {
 
   const cells = rows.map((r, i) =>
     r.map((text, j) => {
-      const href = CONFIG.output[j].linkFrom && getCell(matched[i].a._links ?? {}, CONFIG.output[j].linkFrom);
-      return href ? { text, onClick: () => openOnPageA(tableA, href) } : text;
+      const href = CONFIG.output[j].linkFrom && getCell(matched[i].citi._links ?? {}, CONFIG.output[j].linkFrom);
+      return href ? { text, onClick: () => openOnCiti(citiTable, href) } : text;
     }),
   );
 
@@ -365,18 +365,18 @@ function render({ matched, unmapped, missingDeal }, tableA) {
 // Join the last build against the current deal map and show it.
 function renderBuild() {
   if (!lastBuild) return;
-  const { tableA, deals, builtAt } = lastBuild;
+  const { citiTable, deals, builtAt } = lastBuild;
   const joined = joinRows({
-    rowsA: tableA.rows,
+    citiRows: citiTable.rows,
     deals,
     mapEntries,
-    issuerColumn: CONFIG.pageA.issuerColumn,
-    seriesColumn: CONFIG.pageA.seriesColumn,
-    dealIdField: CONFIG.pageB.dealIdField,
+    issuerColumn: CONFIG.citi.issuerColumn,
+    seriesColumn: CONFIG.citi.seriesColumn,
+    dealIdField: CONFIG.secOps.dealIdField,
   });
-  render(joined, tableA);
+  render(joined, citiTable);
   setStatus(
-    `${joined.matched.length} of ${tableA.rows.length} rows matched · ${deals.length} deals from B · ` +
+    `${joined.matched.length} of ${citiTable.rows.length} rows matched · ${deals.length} deals from SecOps · ` +
       builtAt.toLocaleString(),
   );
 }
@@ -387,9 +387,9 @@ async function run() {
     await requestHostAccess();
     setStatus('Fetching deals from SecOps…');
     const deals = await loadDeals();
-    setStatus('Reading table from citi…');
-    const tableA = await loadTableA();
-    lastBuild = { tableA, deals, builtAt: new Date() };
+    setStatus('Reading table from Citi…');
+    const citiTable = await loadCitiTable();
+    lastBuild = { citiTable, deals, builtAt: new Date() };
     lastDeals = { deals, fetchedAt: lastBuild.builtAt };
     renderBuild();
     renderIssues();
@@ -414,7 +414,7 @@ function renderIssues() {
   const missing = unmappedDeals({
     deals,
     mapEntries,
-    dealIdField: CONFIG.pageB.dealIdField,
+    dealIdField: CONFIG.secOps.dealIdField,
     include: CONFIG.issues.include,
   });
   const badge = $('issue-count');
@@ -430,7 +430,7 @@ function renderIssues() {
   );
   const cols = CONFIG.issues.columns;
   const rows = missing.map((d) => {
-    const dealId = String(getField(d, CONFIG.pageB.dealIdField));
+    const dealId = String(getField(d, CONFIG.secOps.dealIdField));
     return [
       ...cols.map((c) => String(getField(d, c.field) ?? '')),
       { text: 'Map…', onClick: () => startMapping(suggestMapping(dealId, mapEntries)) },

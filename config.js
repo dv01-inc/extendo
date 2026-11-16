@@ -1,10 +1,17 @@
 // Everything page-specific lives here. URL patterns used below must also be listed in
-// manifest.json `host_permissions` (including the origin of citi's iframe).
+// manifest.json `host_permissions` (including the origin of Citi's iframe).
+
+// true: use the local mocks from dev/mock-server.py instead of the real Citi and SecOps.
+// Never commit this as true; the release workflow refuses to ship it.
+const MOCK = false;
+
 export const CONFIG = {
-  pageA: {
+  mock: MOCK,
+
+  citi: {
     // Tab the user has open with the source table. The active matching tab wins.
-    urlMatch: 'https://sf.citidirect.com/*',
-    // Header text of the join columns in A's table (matched case-insensitively). The
+    urlMatch: MOCK ? 'http://localhost:8765/*' : 'https://sf.citidirect.com/*',
+    // Header text of the join columns in Citi's table (matched case-insensitively). The
     // first <table> in any frame that has both headers is used.
     issuerColumn: 'Issuer',
     seriesColumn: 'Series',
@@ -12,11 +19,11 @@ export const CONFIG = {
     statementLabel: 'Certificate Holders Statement',
   },
 
-  pageB: {
-    // Tab where the user is logged into B. The API call runs inside this tab, so it
-    // uses B's own session cookies and is same-origin.
-    urlMatch: 'https://secops-dashboard.dv01.cloud/*',
-    apiUrl: 'https://secops-dashboard.dv01.cloud/v1/deals',
+  secOps: {
+    // Tab where the user is logged into SecOps. The API call runs inside this tab, so it
+    // uses SecOps's own session cookies and is same-origin.
+    urlMatch: MOCK ? 'http://localhost:8766/*' : 'https://secops-dashboard.dv01.cloud/*',
+    apiUrl: MOCK ? 'http://localhost:8766/v1/deals' : 'https://secops-dashboard.dv01.cloud/v1/deals',
     // Dotted path to the deals array in the response. '' means the response is the array,
     // or an object whose first array-valued property holds the deals.
     dealsPath: '',
@@ -35,20 +42,20 @@ export const CONFIG = {
     ],
   },
 
-  // Columns shown in the side panel. `from: 'a'` reads a header from A's table;
-  // `from: 'b'` reads a (dotted) field from the matched deal. `value: (rowA, deal) => …`
-  // computes the cell instead. `linkFrom: '<A header>'` makes the cell a link that
-  // follows that A cell's link on citi. `sort: 'desc' | 'asc'` sorts the table by that
+  // Columns shown in the side panel. `from: 'citi'` reads a header from Citi's table;
+  // `from: 'secOps'` reads a (dotted) field from the matched deal. `value: (citiRow, deal) => …`
+  // computes the cell instead. `linkFrom: '<Citi header>'` makes the cell a link that
+  // follows that Citi cell's link on Citi. `sort: 'desc' | 'asc'` sorts the table by that
   // column (for booleans, 'desc' puts true first).
   output: [
     // SecOps reports 'Waiting' / 'Success'; compare case-insensitively.
     {
       label: 'Not Yet Available in GCP',
-      value: (a, b) => b.trusteeReportReceived?.status?.toLowerCase() === 'waiting',
+      value: (citiRow, deal) => deal.trusteeReportReceived?.status?.toLowerCase() === 'waiting',
       sort: 'desc',
     },
-    { label: 'Issuer', from: 'a', field: 'Issuer' },
-    { label: 'Series', from: 'a', field: 'Series' },
-    { label: 'Deal', from: 'b', field: 'dealName', linkFrom: 'Series' },
+    { label: 'Issuer', from: 'citi', field: 'Issuer' },
+    { label: 'Series', from: 'citi', field: 'Series' },
+    { label: 'Deal', from: 'secOps', field: 'dealName', linkFrom: 'Series' },
   ],
 };

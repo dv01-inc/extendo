@@ -33,6 +33,13 @@ jobs:
         with:
           ref: main
 
+      - name: Refuse to release a mock config
+        run: |
+          if grep -Eq '^const MOCK = true' config.js; then
+            echo "::error::config.js has MOCK = true; set it to false before releasing."
+            exit 1
+          fi
+
       - name: Bump version in manifest.json
         id: bump
         env:
@@ -78,7 +85,10 @@ jobs:
         run: |
           mkdir -p dist/extendo
           cp -r *.js *.html *.css data dist/extendo/
-          jq '.name = "Extendo" | del(.version_name)' manifest.json > dist/extendo/manifest.json
+          # Release builds drop the dev name, the -dev label, and the local mock hosts.
+          jq '.name = "Extendo" | del(.version_name)
+              | .host_permissions |= map(select(test("^http://(localhost|127\\.0\\.0\\.1)[:/]") | not))' \
+            manifest.json > dist/extendo/manifest.json
           (cd dist && zip -r "extendo-v$VERSION.zip" extendo)
 
       - name: Create GitHub Release

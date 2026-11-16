@@ -1,7 +1,7 @@
 // Functions passed to chrome.scripting.executeScript are serialized and run inside the
 // target page, so they must be self-contained: no imports, no references to module scope.
 
-// Runs in every frame of citi's tab. Returns the first table whose header row contains
+// Runs in every frame of Citi's tab. Returns the first table whose header row contains
 // all of `requiredHeaders`, as an array of {header: cellText} objects, or null. Cells
 // containing a link also record its href under row._links[header].
 export function extractTable(requiredHeaders) {
@@ -34,7 +34,7 @@ export function extractTable(requiredHeaders) {
   return null;
 }
 
-// Runs in citi's MAIN world in one frame and follows a link from the table as clicking it
+// Runs in Citi's MAIN world in one frame and follows a link from the table as clicking it
 // would. Returns false (doing nothing) unless this frame currently shows that link, i.e.
 // the table is still there. For `javascript:fn(args)` links (e.g. reqDl(2947)) it calls
 // the page's own function; otherwise it clicks the anchor.
@@ -51,7 +51,7 @@ export function followLink(href) {
   return true;
 }
 
-// Runs in each frame of citi after a deal is opened (the deal's Reports page). Returns
+// Runs in each frame of Citi after a deal is opened (the deal's Reports page). Returns
 // the most recent `label` statement as {title, href, candidates}, or null.
 //
 // The Reports page is one table split into sections: a heading row (a single wide cell,
@@ -87,7 +87,7 @@ export function findLatestStatement(label) {
   return { title: latest.title, href: latest.href, candidates };
 }
 
-// Runs in citi's MAIN world in one frame. Downloads the file behind a link the frame
+// Runs in Citi's MAIN world in one frame. Downloads the file behind a link the frame
 // currently shows, instead of opening it in the frame. Returns false if the link is gone.
 export function downloadLink(href) {
   const anchor = [...document.querySelectorAll('a[href]')].find((a) => a.getAttribute('href') === href);
@@ -101,11 +101,11 @@ export function downloadLink(href) {
   return true;
 }
 
-// Runs in SecOps's MAIN world so the request carries B's cookies exactly as B's own app
+// Runs in SecOps's MAIN world so the request carries SecOps's cookies exactly as the dashboard itself
 // would, plus the Authorization header captured from the app's own requests (if any).
-export async function fetchFromB(apiUrl, authorization) {
+export async function fetchFromSecOps(apiUrl, authorization) {
   try {
-    const headers = { Accept: 'application/json' };
+    const headers = { Accept: 'application/json', forAudit: 'extendo' };
     if (authorization) headers.Authorization = authorization;
     const res = await fetch(apiUrl, { credentials: 'include', headers });
     if (!res.ok) {

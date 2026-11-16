@@ -4,20 +4,20 @@ export const normalize = (s) => String(s ?? '').replace(/\s+/g, ' ').trim().toUp
 
 export const mapKey = (issuer, series) => `${normalize(issuer)}|${normalize(series)}`;
 
-// Dotted-path lookup on B's deal objects, e.g. 'tranches.0.balance'.
+// Dotted-path lookup on SecOps deal objects, e.g. 'tranches.0.balance'.
 export function getField(obj, path) {
   if (!path) return obj;
   return path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
 }
 
-// Case-insensitive header lookup on A's rows.
+// Case-insensitive header lookup on Citi rows.
 export function getCell(row, header) {
   const want = header.toLowerCase();
   const key = Object.keys(row).find((k) => k.toLowerCase() === want);
   return key === undefined ? undefined : row[key];
 }
 
-export function joinRows({ rowsA, deals, mapEntries, issuerColumn, seriesColumn, dealIdField }) {
+export function joinRows({ citiRows, deals, mapEntries, issuerColumn, seriesColumn, dealIdField }) {
   const dealIdByKey = new Map(mapEntries.map((m) => [mapKey(m.issuer, m.series), String(m.dealId)]));
   const dealsById = new Map(deals.map((d) => [String(getField(d, dealIdField)), d]));
 
@@ -25,7 +25,7 @@ export function joinRows({ rowsA, deals, mapEntries, issuerColumn, seriesColumn,
   const unmapped = [];
   const missingDeal = [];
 
-  for (const row of rowsA) {
+  for (const row of citiRows) {
     const issuer = getCell(row, issuerColumn);
     const series = getCell(row, seriesColumn);
     const dealId = dealIdByKey.get(mapKey(issuer, series));
@@ -38,14 +38,18 @@ export function joinRows({ rowsA, deals, mapEntries, issuerColumn, seriesColumn,
       missingDeal.push({ issuer, series, dealId });
       continue;
     }
-    matched.push({ a: row, b: deal });
+    matched.push({ citi: row, secOps: deal });
   }
   return { matched, unmapped, missingDeal };
 }
 
-export function project({ a, b }, output) {
+export function project({ citi, secOps }, output) {
   return output.map((col) => {
-    const v = col.value ? col.value(a, b) : col.from === 'a' ? getCell(a, col.field) : getField(b, col.field);
+    const v = col.value
+      ? col.value(citi, secOps)
+      : col.from === 'citi'
+        ? getCell(citi, col.field)
+        : getField(secOps, col.field);
     return v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
   });
 }
@@ -56,7 +60,7 @@ export function unmappedDeals({ deals, mapEntries, dealIdField, include }) {
   return deals.filter((d) => include(d) && !mapped.has(String(getField(d, dealIdField))));
 }
 
-// Guess a map entry for a B deal id like 'SEMT 2020-1': the series is the last word, and
+// Guess a map entry for a SecOps deal id like 'SEMT 2020-1': the series is the last word, and
 // the issuer is the one most often mapped to other deals with the same shelf ('SEMT').
 export function suggestMapping(dealId, mapEntries) {
   const [shelf, series] = splitDealId(dealId);

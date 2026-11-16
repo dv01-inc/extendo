@@ -1,6 +1,6 @@
 # Extendo
 
-Chrome (MV3) extension that builds a table in the side panel by joining citi's
+Chrome (MV3) extension that builds a table in the side panel by joining Citi's
 issuer/series table with deal data from SecOps (dv01).
 
 ## How to Install Extendo
@@ -43,8 +43,8 @@ After you have installed Extendo on your Chrome browser
 
 The side panel has three tabs:
 
-- **Downloads**: the joined table. Click a deal to open it on citi and download its
-  latest statement. citi rows missing from the deal map have a **Map…** link.
+- **Downloads**: the joined table. Click a deal to open it on Citi and download its
+  latest statement. Citi rows missing from the deal map have a **Map…** link.
 - **Issues**: Citi deals from SecOps (`config.js` → `issues.include`) that no deal map
   entry points to. Filled in by **Build table**, or fetch on its own. **Map…** opens the
   Mappings tab with a suggested entry (issuer guessed from other deals on the same shelf).
@@ -54,28 +54,62 @@ The side panel has three tabs:
   `data/deal-map.json`; commit it there to share it or keep it as the default. **Reset**
   discards local edits and reloads `data/deal-map.json`.
 
+## Testing locally with mock sites
+
+`dev/mock-server.py` serves stand-ins for Citi and SecOps on localhost, so you can test
+changes without logging in to either. It needs only Python 3, and the fake data is in
+`dev/fixtures.json`.
+
+1. `python3 dev/mock-server.py`
+2. In `config.js`, set `const MOCK = true;`, then reload Extendo in `chrome://extensions`.
+   The side panel's version tag shows **MOCK**. Don't commit this; the release workflow
+   rejects it.
+3. Open http://localhost:8766/ (SecOps) and click **Sign in as alice**.
+4. Open http://localhost:8765/ (Citi), then **Build table** in the side panel.
+
+What the mock data covers:
+
+- **Downloads**: matched rows (Waiting rows sort first), a row matched despite case and
+  whitespace differences, a mapped deal that SecOps doesn't return, and an unmapped row
+  with **Map…**. Clicking a deal opens its Reports page in the iframe (after a 1s delay)
+  and offers the Oct 2026 Certificate Holders Statement as a PDF. JPMMT 2024-10 has no
+  statement.
+- **Issues**: two unmapped Citi deals. COLT 2026-9 gets a suggested issuer and EXMT 2026-1
+  doesn't. A non-Citi deal is filtered out.
+- **SecOps login**: each tab keeps its own token, so two tabs can be signed in as alice
+  and bob. **Expire session** makes the next API call return 401 without the page
+  noticing. **Log out** navigates to a sign-out page on another origin. The server log
+  shows which token each request carried.
+
+The mock hosts are in the dev `manifest.json`'s `host_permissions`; release zips leave
+them out.
+
 ## How it works
 
-- **SecOps**: the API call is run *inside* the open B tab (`chrome.scripting`, MAIN world),
-  so it uses B's own logged-in session. No token is extracted or stored.
-- **citi**: the table lives in an iframe; a read-only extractor runs in every frame and
+- **SecOps**: the API call is run *inside* the open SecOps tab (`chrome.scripting`, MAIN world),
+  so it uses SecOps's own logged-in session. The dashboard's `Authorization` header is also
+  copied from its own requests (`background.js`) and kept in memory only
+  (`chrome.storage.session`), tied to that tab. It's used only to call the API directly if
+  no SecOps tab can run the request, and it's dropped when that tab closes, leaves SecOps,
+  or gets a 401. It's never written to disk or sent to another tab.
+- **Citi**: the table lives in an iframe; a read-only extractor runs in every frame and
   picks the first `<table>` with the configured issuer/series headers.
 - **Join**: the deal map (edited in the Mappings tab, seeded from `data/deal-map.json`) maps
-  (issuer, series) → B deal id. Matching ignores case
-  and extra whitespace. Rows that aren't in the map, or whose deal B didn't return, are listed
+  (issuer, series) → SecOps deal id. Matching ignores case
+  and extra whitespace. Rows that aren't in the map, or whose deal SecOps didn't return, are listed
   separately below the main table.
 
 ## Setup
 
-1. Fill in `config.js`: page URLs, B's API endpoint and response shape, A's column headers,
+1. Fill in `config.js`: page URLs, SecOps's API endpoint and response shape, Citi's column headers,
    and the output columns.
 2. Put the same URL patterns in `manifest.json` → `host_permissions`, **including the
-   origin of citi's iframe** (check its `src` in DevTools).
+   origin of Citi's iframe** (check its `src` in DevTools).
 3. Populate `data/deal-map.json`.
 4. `chrome://extensions` → Developer mode → **Load unpacked** → select this folder.
    After editing files, click the reload icon on the extension card.
 
-To find B's API: open B with DevTools → Network → Fetch/XHR, find the request that returns
+To find SecOps's API: open SecOps with DevTools → Network → Fetch/XHR, find the request that returns
 deal data, and copy its URL and response shape. If it uses a `Bearer` token rather than
-cookies, add the header in `fetchFromB` in `injected.js`.
+cookies, add the header in `fetchFromSecOps` in `injected.js`.
 # extendo
