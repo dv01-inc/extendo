@@ -1,0 +1,24 @@
+{
+  "_comment": "Fake data for dev/mock-server.py. citiRows build the Citi deal list; secopsDeals are what the mock SecOps API returns. Each row's 'note' says which code path it exercises.",
+  "citiRows": [
+    { "id": 2947, "issuer": "A and D Mortgage Trust", "series": "2023-NQM2", "note": "matched, report Waiting (sorts to top)" },
+    { "id": 3011, "issuer": "Bravo Residential Funding Trust", "series": "2024-CES1", "note": "matched, Success" },
+    { "id": 1820, "issuer": "  colt ", "series": "2022-2", "note": "matched despite case/whitespace differences" },
+    { "id": 3104, "issuer": "GCAT Trust", "series": "2024-INV1", "note": "matched, Waiting" },
+    { "id": 3290, "issuer": "J.P. Morgan Mortgage Trust", "series": "2024-10", "note": "matched, deal page has no Certificate Holders Statement", "reports": false },
+    { "id": 2105, "issuer": "RCKT Mortgage Trust", "series": "2022-4", "note": "matched, Success" },
+    { "id": 1544, "issuer": "J.P. Morgan Mortgage Trust", "series": "2021-2", "note": "mapped, but SecOps doesn't return the deal" },
+    { "id": 3388, "issuer": "Example Mortgage Trust", "series": "2026-1", "note": "not in the deal map (Map… link)" }
+  ],
+  "secopsDeals": [
+    { "dealName": "ADMT 2023-NQM2", "trustee": "Citi", "platform": "ADMT", "assetClass": "mortgage", "trusteeReportReceived": { "status": "Waiting" } },
+    { "dealName": "BRAVO 2024-CES1", "trustee": "Citi", "platform": "BRAVO", "assetClass": "mortgage", "trusteeReportReceived": { "status": "Success" } },
+    { "dealName": "COLT 2022-2", "trustee": "Citi", "platform": "COLT", "assetClass": "mortgage", "trusteeReportReceived": { "status": "Success" } },
+    { "dealName": "GCAT 2024-INV1", "trustee": "Citi", "platform": "GCAT", "assetClass": "mortgage", "trusteeReportReceived": { "status": "waiting" } },
+    { "dealName": "JPMMT 2024-10", "trustee": "Citi", "platform": "JPMMT", "assetClass": "mortgage", "trusteeReportReceived": { "status": "Success" } },
+    { "dealName": "RCKT 2022-4", "trustee": "Citi", "platform": "RCKT", "assetClass": "mortgage", "trusteeReportReceived": { "status": "Success" } },
+    { "dealName": "EXMT 2026-1", "trustee": "Citi", "platform": "EXMT", "assetClass": "mortgage", "trusteeReportReceived": { "status": "Waiting" }, "_note": "Issues tab, unknown shelf (no issuer suggested)" },
+    { "dealName": "COLT 2026-9", "trustee": "Citi", "platform": "COLT", "assetClass": "mortgage", "trusteeReportReceived": { "status": "Waiting" }, "_note": "Issues tab, issuer suggested from the COLT shelf" },
+    { "dealName": "Avant Platform", "trustee": "Wilmington", "platform": "Avant", "assetClass": "consumer_unsecured", "trusteeReportReceived": { "status": "Success" }, "_note": "not Citi, so excluded from Issues" }
+  ]
+}
