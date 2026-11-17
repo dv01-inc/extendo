@@ -8,10 +8,9 @@ download Citi statements and maintain the mapping between the two.
 User-facing install and usage docs live in `README.md`. This file covers how the code fits
 together and what to keep intact when changing it.
 
-## Naming: Citi and SecOps, never "page A / page B"
+## Naming: Citi and SecOps
 
-The two sites were once called page A (Citi) and page B (SecOps). That naming has been
-removed everywhere. In new code, comments, UI text and docs:
+The two sites that get user are Citi and SecOps.
 
 - Prose and UI text: **Citi** and **SecOps** (capitalised).
 - Identifiers: `citi` / `secOps` in JS (`CONFIG.citi`, `citiRows`, `citiTable`, `secOpsAuth`),
@@ -56,15 +55,14 @@ flowchart LR
   INJ -. "serialized into" .-> SEC
 ```
 
-The side panel does all the work. It never scrapes with network calls of its own: it injects
-functions into the tabs the user is already logged into, so each site sees its own session.
+The side panel does all the work. It never scrapes with network calls of its own: it injects functions into the tabs the user is already logged into, so each site sees its own session.
 
 ### Files
 
 | File | Owns |
 | --- | --- |
 | `manifest.json` | MV3 manifest. Repo copy is always the **dev build** (`"Extendo (dev)"`, `version_name: X.Y.Z-dev`). `host_permissions` must cover every URL in `config.js`, including Citi's iframe origin and the mock hosts. |
-| `config.js` | Every site-specific value: URL patterns, SecOps API URL and response shape, Citi column headers, statement label, the Issues filter, and the Downloads output columns. `MOCK` switches to the local mock servers. |
+| `config.js` | Every site-specific value: URL patterns, SecOps API URL and response shape, Citi column headers, statement label, the Issues filter, and the Downloads output columns. `MOCK_CITI` / `MOCK_SECOPS` switch each site to its local mock independently. |
 | `background.js` | Opens the panel on toolbar click, sets the DEV badge, and captures SecOps's `Authorization` header from the dashboard's own requests into `chrome.storage.session`, tied to its tab. It clears that header on 401, tab close, or navigation away from SecOps. |
 | `sidepanel.js` | UI and orchestration: tabs, Build table, Citi navigation and statement download, Issues, Mappings editor, import/export. Holds the in-memory state (`mapEntries`, `lastBuild`, `lastDeals`). |
 | `join.js` | **Pure** logic, no `chrome.*`: `joinRows`, `project`, `unmappedDeals`, `suggestMapping`, `normalize`/`mapKey`. Testable with plain Node. |
@@ -137,7 +135,8 @@ Issues.
 - Every URL `config.js` uses must be in `manifest.json` `host_permissions`, including Citi's
   iframe origin.
 - Functions in `injected.js` must not reference imports or outer variables.
-- `const MOCK = false` when committing. The release workflow refuses to ship `MOCK = true`.
+- `MOCK_CITI` and `MOCK_SECOPS` must be `false` when committing. The release workflow refuses
+  to ship either as `true`.
 - Don't hand-edit `version` in `manifest.json`. The workflow owns it.
 - New release-zip files: if you add a top-level file type or folder the extension loads at
   runtime, update the `cp` line in `release.yml`.
@@ -170,7 +169,7 @@ Issues.
 
 ## Testing
 
-- **Mock sites:** `python3 dev/mock-server.py`, set `MOCK = true`, reload the extension, sign
+- **Mock sites:** `python3 dev/mock-server.py`, set `MOCK_CITI` / `MOCK_SECOPS = true` (either or both), reload the extension, sign
   in at http://localhost:8766/, open http://localhost:8765/, then Build table. Fixtures in
   `dev/fixtures.json` cover matched/unmapped/missing rows, issues with and without a
   suggested issuer, multi-user tokens, expiry and logout. Add fixtures when adding a code

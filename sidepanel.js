@@ -20,8 +20,9 @@ function setStatus(text, isError = false, id = 'status') {
 // Show the build in the tab bar, e.g. "v1.0.1" or "v1.0.1-dev" (highlighted).
 {
   const { version, version_name: name = version } = chrome.runtime.getManifest();
-  $('version').textContent = `v${name}${CONFIG.mock ? ' · MOCK' : ''}`;
-  $('version').classList.toggle('dev', name.endsWith('-dev') || CONFIG.mock);
+  const mocked = [CONFIG.mock.citi && 'Citi', CONFIG.mock.secOps && 'SecOps'].filter(Boolean);
+  $('version').textContent = `v${name}${mocked.length ? ` · MOCK ${mocked.join(' + ')}` : ''}`;
+  $('version').classList.toggle('dev', name.endsWith('-dev') || mocked.length > 0);
 }
 
 // --- Tabs ---

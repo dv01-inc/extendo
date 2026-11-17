@@ -35,8 +35,8 @@ jobs:
 
       - name: Refuse to release a mock config
         run: |
-          if grep -Eq '^const MOCK = true' config.js; then
-            echo "::error::config.js has MOCK = true; set it to false before releasing."
+          if grep -Eq '^const MOCK_[A-Z_]+ = true' config.js; then
+            echo "::error::config.js has a MOCK_* switch set to true; set it to false before releasing."
             exit 1
           fi
 

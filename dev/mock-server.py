@@ -3,7 +3,7 @@
 
     python3 dev/mock-server.py
 
-Then set MOCK = true in config.js, reload the extension, and open:
+Then set MOCK_CITI and/or MOCK_SECOPS = true in config.js, reload the extension, and open:
 
     Citi    http://localhost:8765/   (deal table lives in an iframe on http://127.0.0.1:8765)
     SecOps  http://localhost:8766/   (sign in, then Build table in the side panel)
@@ -340,7 +340,7 @@ if __name__ == "__main__":
         threading.Thread(target=serve, args=(p,), daemon=True).start()
     print(f"Citi mock:   http://localhost:{CITI_PORT}/")
     print(f"SecOps mock: http://localhost:{SECOPS_PORT}/")
-    print("Set MOCK = true in config.js and reload the extension. Ctrl-C to stop.")
+    print("Set MOCK_CITI and/or MOCK_SECOPS = true in config.js and reload the extension. Ctrl-C to stop.")
     try:
         threading.Event().wait()
     except KeyboardInterrupt:

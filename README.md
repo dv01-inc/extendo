@@ -61,11 +61,18 @@ changes without logging in to either. It needs only Python 3, and the fake data 
 `dev/fixtures.json`.
 
 1. `python3 dev/mock-server.py`
-2. In `config.js`, set `const MOCK = true;`, then reload Extendo in `chrome://extensions`.
-   The side panel's version tag shows **MOCK**. Don't commit this; the release workflow
-   rejects it.
+2. In `config.js`, set `const MOCK_CITI = true;` and `const MOCK_SECOPS = true;`, then
+   reload Extendo in `chrome://extensions`. The side panel's version tag shows which sites
+   are mocked (e.g. **MOCK Citi + SecOps**). Don't commit either as true; the release
+   workflow rejects it.
 3. Open http://localhost:8766/ (SecOps) and click **Sign in as alice**.
 4. Open http://localhost:8765/ (Citi), then **Build table** in the side panel.
+
+The switches are independent, so you can mock one site against the real other. For
+example, `MOCK_CITI = true` with `MOCK_SECOPS = false` reads the mock Citi table and calls
+the real SecOps (log in at secops-dashboard.dv01.cloud instead of step 3). Mock Citi rows
+only match if `data/deal-map.json` maps them to deals real SecOps returns; otherwise they
+show up under the problem lists below the table.
 
 What the mock data covers:
 
