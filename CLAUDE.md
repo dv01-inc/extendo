@@ -47,7 +47,7 @@ flowchart LR
   MS -. "seed / reset" .-> BUNDLE
   BG -- "webRequest: copy Authorization header" --> SS
   SP -- "read token" --> SS
-  SP -- "executeScript(extractTable, followLink,<br/>findLatestStatement, downloadLink)" --> CITI
+  SP -- "executeScript(extractTable, followLink,<br/>findLatestStatements, downloadLink)" --> CITI
   SP -- "executeScript MAIN world (fetchFromSecOps)" --> SEC
   SEC -- "fetch with tab's session" --> API
   SP -. "fallback: direct fetch with captured token" .-> API
@@ -62,7 +62,7 @@ The side panel does all the work. It never scrapes with network calls of its own
 | File | Owns |
 | --- | --- |
 | `manifest.json` | MV3 manifest. Repo copy is always the **dev build** (`"Extendo (dev)"`, `version_name: X.Y.Z-dev`). `host_permissions` must cover every URL in `config.js`, including Citi's iframe origin and the mock hosts. |
-| `config.js` | Every site-specific value: URL patterns, SecOps API URL and response shape, Citi column headers, statement label, the Issues filter, and the Downloads output columns. `MOCK_CITI` / `MOCK_SECOPS` switch each site to its local mock independently. |
+| `config.js` | Every site-specific value: URL patterns, SecOps API URL and response shape, Citi column headers, the downloadable report sections (`citi.statements`), the Issues filter, and the Downloads output columns. `MOCK_CITI` / `MOCK_SECOPS` switch each site to its local mock independently. |
 | `background.js` | Opens the panel on toolbar click, sets the DEV badge, and captures SecOps's `Authorization` header from the dashboard's own requests into `chrome.storage.session`, tied to its tab. It clears that header on 401, tab close, or navigation away from SecOps. |
 | `sidepanel.js` | UI and orchestration: tabs, Build table, Citi navigation and statement download, Issues, Mappings editor, import/export. Holds the in-memory state (`mapEntries`, `lastBuild`, `lastDeals`). |
 | `join.js` | **Pure** logic, no `chrome.*`: `joinRows`, `project`, `unmappedDeals`, `suggestMapping`, `normalize`/`mapKey`. Testable with plain Node. |
@@ -88,8 +88,22 @@ The side panel does all the work. It never scrapes with network calls of its own
 4. `joinRows()` on the current `mapEntries` gives `{ matched, unmapped, missingDeal }`.
    `project()` turns `matched` into output columns from `CONFIG.output`.
 5. Clicking a linked cell calls `openOnCiti()`. It follows the link in whichever frame shows
-   it, going back in history up to 3 times if Citi has moved on. It then polls for
-   `findLatestStatement` and asks before running `downloadLink`.
+   it, going back in history up to 3 times if Citi has moved on. It then polls
+   `findLatestStatements` until the Reports page shows any configured section heading.
+   `askWhichFiles()` lists the latest file of every section found as checkboxes, with
+   missing sections disabled. Pre-ticks come from the last Yes
+   (`chrome.storage.local['statementPicks']`, updated only for sections that deal offered),
+   or `default: true` in config before the first one. No leaves them unchanged. Yes runs
+   `downloadLink` for each ticked file, with a 500 ms gap between them (`DOWNLOAD_GAP_MS`).
+   A heading matches its label exactly or followed by a bracketed note
+   ("Enhanced Loan-Level Data (report legends)"). To add a report type, add its heading to
+   `CONFIG.citi.statements`.
+
+**Build table (no SecOps)** runs the same flow without step 2: `joinRows` gets
+`deals: null`, so every mapped Citi row matches with a stand-in deal holding only its id,
+flagged `noSecOps`. `project()` then shows a column's `noSecOps` value (e.g. `'Unknown'` for
+"Not Yet Available in GCP") instead of computing it. When adding a SecOps-derived output
+column, give it a `noSecOps` value. This build doesn't touch Issues.
 
 `lastBuild` keeps the Citi table and deals, so **editing a mapping re-joins immediately**
 without refetching. `lastDeals` (from Build table or the Issues tab's own fetch) feeds
@@ -147,7 +161,7 @@ Issues.
 
 - **New Downloads column:** add to `CONFIG.output`, using `from: 'citi'` (header text) or
   `from: 'secOps'` (dotted field), or `value: (citiRow, deal) => …`. Add `sort` or `linkFrom`
-  if needed. No code change.
+  if needed, and `noSecOps` for what to show when built without SecOps. No code change.
 - **Change or add issue rules:** adjust `CONFIG.issues.include` / `columns`. For a different
   kind of issue (e.g. map entries pointing to deals SecOps no longer returns, or Citi rows not
   in the map), add a pure function in `join.js` and a section in `renderIssues()`. Keep the

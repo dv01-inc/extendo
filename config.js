@@ -17,8 +17,16 @@ export const CONFIG = {
     // first <table> in any frame that has both headers is used.
     issuerColumn: 'Issuer',
     seriesColumn: 'Series',
-    // After a deal is opened, offer to download its most recent statement of this type.
-    statementLabel: 'Certificate Holders Statement',
+    // Report sections on a deal's Reports page. After a deal is opened, the latest month of
+    // each section it has is offered for download as a checkbox. The ticks from the last
+    // download are remembered; before the first one, `default: true` sections start ticked.
+    statements: [
+      { label: 'Bond Factor Information' },
+      { label: 'Performance Loan Details' },
+      { label: 'EU Risk Retention Reporting' },
+      { label: 'Certificate Holders Statement', default: true },
+      { label: 'Enhanced Loan-Level Data' },
+    ],
   },
 
   secOps: {
@@ -48,13 +56,16 @@ export const CONFIG = {
   // `from: 'secOps'` reads a (dotted) field from the matched deal. `value: (citiRow, deal) => …`
   // computes the cell instead. `linkFrom: '<Citi header>'` makes the cell a link that
   // follows that Citi cell's link on Citi. `sort: 'desc' | 'asc'` sorts the table by that
-  // column (for booleans, 'desc' puts true first).
+  // column (for booleans, 'desc' puts true first). `noSecOps: '…'` is shown instead when the
+  // table was built without SecOps ("Build table (no SecOps)"); columns without it show
+  // what they can (the deal id is still known from the deal map) or blank.
   output: [
     // SecOps reports 'Waiting' / 'Success'; compare case-insensitively.
     {
       label: 'Not Yet Available in GCP',
       value: (citiRow, deal) => deal.trusteeReportReceived?.status?.toLowerCase() === 'waiting',
       sort: 'desc',
+      noSecOps: 'Unknown',
     },
     { label: 'Issuer', from: 'citi', field: 'Issuer' },
     { label: 'Series', from: 'citi', field: 'Series' },

@@ -17,8 +17,11 @@ Citi (port 8765)
     deal's Reports page (slowly, to exercise polling), so the side panel's Back handling
     walks iframe history.
   - Reports page: one table, sections headed by a single wide cell, year rows of month
-    links to PDFs. A later "Monthly Remittance Report" section checks that only the
-    configured section is read. Some deals have no statement section.
+    links to PDFs. Has all five configured sections, each with a different latest month;
+    "Enhanced Loan-Level Data" has a "(report legends)" link in its heading, like the real
+    page. A later-dated "Monthly Remittance Report" section checks that unconfigured
+    sections are ignored. Deals with "reports": false lack the Certificate Holders
+    Statement, and EU Risk Retention Reporting only appears on even deal ids.
 
 SecOps (port 8766)
   - Dashboard keeps its token in sessionStorage (so each tab can be a different user) and
@@ -130,12 +133,12 @@ def citi_deals():
     )
 
 
-def report_section(label, deal_id, years):
+def report_section(label, deal_id, years, heading_extra=""):
     """A heading row, then one row per year of month links. years: {year: last_month}."""
     slug = label.lower().replace(" ", "-")
-    # Cells on separate lines, as in real HTML: findLatestStatement reads the year from the
+    # Cells on separate lines, as in real HTML: findLatestStatements reads the year from the
     # row's text, which needs whitespace between "2026" and "Jan".
-    out = f'\n<tr><td class="section" colspan="13">{html.escape(label)}</td></tr>'
+    out = f'\n<tr><td class="section" colspan="13">{html.escape(label)}{heading_extra}</td></tr>'
     for year, last in years.items():
         cells = "\n".join(
             f'<td><a href="/files/{deal_id}/{slug}-{year}-{m + 1:02d}.pdf">{MONTHS[m]}</a></td>' if m < last else "<td></td>"
@@ -149,10 +152,15 @@ def citi_reports(deal_id):
     row = ROWS_BY_ID.get(deal_id)
     if not row:
         return page("Not found", f"<div class='page'>No deal {deal_id}.</div>")
-    sections = ""
+    sections = report_section("Bond Factor Information", deal_id, {2026: 10})
+    sections += report_section("Performance Loan Details", deal_id, {2026: 9})
+    if deal_id % 2 == 0:
+        sections += report_section("EU Risk Retention Reporting", deal_id, {2026: 6, 2025: 12})
     if row.get("reports", True):
         sections += report_section("Certificate Holders Statement", deal_id, {2026: 10, 2025: 12})
-    # A later-dated section with a different label: must not be picked.
+    legends = ' &nbsp;<a href="javascript:void(0)" style="color:#fff">(report legends)</a>'
+    sections += report_section("Enhanced Loan-Level Data", deal_id, {2026: 10}, legends)
+    # A later-dated section that isn't configured: must not be picked.
     sections += report_section("Monthly Remittance Report", deal_id, {2026: 11})
     return page(
         "Reports",

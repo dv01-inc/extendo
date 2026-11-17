@@ -1,5 +1,5 @@
 import { CONFIG } from './config.js';
-import { downloadLink, extractTable, fetchFromSecOps, findLatestStatement, followLink } from './injected.js';
+import { downloadLink, extractTable, fetchFromSecOps, findLatestStatements, followLink } from './injected.js';
 import { getCell, getField, joinRows, mapKey, project, suggestMapping, unmappedDeals } from './join.js';
 import { isEdited, loadMap, resetMap, saveMap } from './mapstore.js';
 
@@ -203,8 +203,10 @@ async function waitAndFollowLink(tabId, href, timeoutMs) {
   return false;
 }
 
-// Poll Citi's frames until one shows statement links, or `timeoutMs` passes.
-async function waitForStatement(tabId, timeoutMs) {
+// Poll Citi's frames until one shows the Reports page (any configured section heading), or
+// `timeoutMs` passes. Returns the latest file of each section found there, or null.
+async function waitForStatements(tabId, timeoutMs) {
+  const labels = CONFIG.citi.statements.map((s) => s.label);
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const frames = await chrome.webNavigation.getAllFrames({ tabId });
@@ -212,8 +214,8 @@ async function waitForStatement(tabId, timeoutMs) {
       try {
         const [{ result }] = await chrome.scripting.executeScript({
           target: { tabId, frameIds: [frame.frameId] },
-          func: findLatestStatement,
-          args: [CONFIG.citi.statementLabel],
+          func: findLatestStatements,
+          args: [labels],
         });
         if (result) return result;
       } catch {
@@ -225,38 +227,102 @@ async function waitForStatement(tabId, timeoutMs) {
   return null;
 }
 
-// Show a Yes/No question in the side panel. A newer question (from another deal click)
+// Sections ticked the last time the download question was answered Yes, saved in
+// chrome.storage.local. Until the first Yes, the sections marked `default: true` in config.
+const PICKS_KEY = 'statementPicks';
+async function loadPicks() {
+  const { [PICKS_KEY]: saved } = await chrome.storage.local.get(PICKS_KEY);
+  return new Set(saved ?? CONFIG.citi.statements.filter((s) => s.default).map((s) => s.label));
+}
+
+// Ask which of a deal's files to download, as a checkbox per configured section: files found
+// start ticked if their section is in `picks`, sections the deal lacks are shown disabled.
+// Resolves to the ticked files, or null for No. A newer question (from another deal click)
 // answers the pending one with No.
 let answerPrompt = null;
-function askYesNo(question) {
-  answerPrompt?.(false);
-  $('prompt-text').textContent = question;
+function askWhichFiles(files, picks) {
+  answerPrompt?.(null);
+  const choices = [];
+  const update = () => {
+    const n = choices.filter((c) => c.box.checked).length;
+    $('prompt-text').textContent =
+      n === 0 ? 'No files ticked.' : n === 1 ? 'Download this file?' : `Download these ${n} files?`;
+    $('prompt-yes').disabled = n === 0;
+  };
+  const items = CONFIG.citi.statements.map(({ label }) => {
+    const file = files.find((f) => f.label === label);
+    const box = el('input');
+    box.type = 'checkbox';
+    const row = el('label');
+    if (file) {
+      box.checked = picks.has(label);
+      box.addEventListener('change', update);
+      choices.push({ box, file });
+      row.append(box, file.title);
+    } else {
+      box.disabled = true;
+      row.className = 'unavailable';
+      row.append(box, `${label} (not on this deal)`);
+    }
+    const li = el('li');
+    li.appendChild(row);
+    return li;
+  });
+  $('prompt-list').replaceChildren(...items);
+  $('prompt-list').hidden = false;
+  update();
   $('prompt').hidden = false;
   return new Promise((resolve) => {
-    answerPrompt = (answer) => {
+    answerPrompt = (yes) => {
       answerPrompt = null;
       $('prompt').hidden = true;
-      resolve(answer);
+      resolve(yes ? choices.filter((c) => c.box.checked).map((c) => c.file) : null);
     };
   });
 }
 $('prompt-yes').addEventListener('click', () => answerPrompt?.(true));
 $('prompt-no').addEventListener('click', () => answerPrompt?.(false));
 
-// After a deal opens on Citi, offer its most recent statement for download.
-async function offerLatestStatement(tabId) {
-  const label = CONFIG.citi.statementLabel;
-  setStatus(`Looking for the latest ${label}…`);
-  const statement = await waitForStatement(tabId, 15000);
-  if (!statement) {
-    setStatus(`Opened deal on Citi. No ${label} found.`);
+const DOWNLOAD_GAP_MS = 500;
+
+// After a deal opens on Citi, offer the latest file of each report section on it to pick from.
+async function offerLatestStatements(tabId) {
+  setStatus('Looking for the latest reports…');
+  const found = await waitForStatements(tabId, 15000);
+  if (!found) {
+    setStatus('Opened deal on Citi. No report sections found on it.');
     return;
   }
-  console.log('Extendo: statement candidates', statement.candidates, 'picked', statement.title);
+  const missing = CONFIG.citi.statements.map((s) => s.label).filter((l) => !found.some((f) => f.label === l));
+  console.log('Extendo: report sections', found, 'missing', missing);
+  if (!found.length) {
+    setStatus('Opened deal on Citi. Its report sections have no files.');
+    return;
+  }
   setStatus('Opened deal on Citi.');
-  if (!(await askYesNo(`Should we download ${statement.title}?`))) return;
-  const ok = await tryFollowLink(tabId, statement.href, downloadLink);
-  setStatus(ok ? `Downloading ${statement.title}…` : `Could not find the ${statement.title} link anymore.`, !ok);
+
+  const picks = await loadPicks();
+  const files = await askWhichFiles(found, picks);
+  if (!files) return;
+  // Remember the choice for the sections this deal offered; sections it lacked keep their
+  // previous state, since they couldn't be changed here.
+  for (const f of found) picks.delete(f.label);
+  for (const f of files) picks.add(f.label);
+  await chrome.storage.local.set({ [PICKS_KEY]: [...picks] });
+
+  const failed = [];
+  for (const [i, file] of files.entries()) {
+    // Space the downloads out; Chrome may drop clicks that arrive together.
+    if (i > 0) await sleep(DOWNLOAD_GAP_MS);
+    setStatus(`Downloading ${i + 1} of ${files.length}: ${file.title}…`);
+    if (!(await tryFollowLink(tabId, file.href, downloadLink))) failed.push(file.title);
+  }
+  setStatus(
+    failed.length
+      ? `Could not find these links anymore: ${failed.join(', ')}.`
+      : `Downloading ${files.length} file${files.length === 1 ? '' : 's'}.`,
+    failed.length > 0,
+  );
 }
 
 // Follow a link from Citi's table. If Citi has moved on from the table (e.g. a previous
@@ -264,7 +330,7 @@ async function offerLatestStatement(tabId) {
 const MAX_BACK_STEPS = 3;
 async function openOnCiti(citiTable, href) {
   const { tabId } = citiTable;
-  answerPrompt?.(false);
+  answerPrompt?.(null);
   try {
     let opened = await tryFollowLink(tabId, href);
     for (let step = 1; !opened && step <= MAX_BACK_STEPS; step++) {
@@ -274,7 +340,7 @@ async function openOnCiti(citiTable, href) {
     }
     if (!opened) throw new Error('could not find the deal list. Go back to it on Citi, then retry.');
     await chrome.tabs.update(tabId, { active: true });
-    await offerLatestStatement(tabId);
+    await offerLatestStatements(tabId);
   } catch (e) {
     setStatus(`Could not open deal on citi: ${e.message}`, true);
   }
@@ -376,32 +442,41 @@ function renderBuild() {
     dealIdField: CONFIG.secOps.dealIdField,
   });
   render(joined, citiTable);
+  const source = deals ? `${deals.length} deals from SecOps` : 'deal map only, SecOps not checked';
   setStatus(
-    `${joined.matched.length} of ${citiTable.rows.length} rows matched · ${deals.length} deals from SecOps · ` +
-      builtAt.toLocaleString(),
+    `${joined.matched.length} of ${citiTable.rows.length} rows matched · ${source} · ` + builtAt.toLocaleString(),
   );
 }
 
-async function run() {
-  $('run').disabled = true;
+// withSecOps false: build from Citi's table and the deal map alone (no SecOps login needed);
+// SecOps-derived columns show their `noSecOps` value.
+async function run(withSecOps) {
+  const buttons = [$('run'), $('run-no-secops')];
+  buttons.forEach((b) => (b.disabled = true));
   try {
     await requestHostAccess();
-    setStatus('Fetching deals from SecOps…');
-    const deals = await loadDeals();
+    let deals = null;
+    if (withSecOps) {
+      setStatus('Fetching deals from SecOps…');
+      deals = await loadDeals();
+    }
     setStatus('Reading table from Citi…');
     const citiTable = await loadCitiTable();
     lastBuild = { citiTable, deals, builtAt: new Date() };
-    lastDeals = { deals, fetchedAt: lastBuild.builtAt };
+    if (deals) {
+      lastDeals = { deals, fetchedAt: lastBuild.builtAt };
+      renderIssues();
+    }
     renderBuild();
-    renderIssues();
   } catch (e) {
     setStatus(e.message, true);
   } finally {
-    $('run').disabled = false;
+    buttons.forEach((b) => (b.disabled = false));
   }
 }
 
-$('run').addEventListener('click', run);
+$('run').addEventListener('click', () => run(true));
+$('run-no-secops').addEventListener('click', () => run(false));
 $('copy').addEventListener('click', async () => {
   await navigator.clipboard.writeText(lastTsv);
   setStatus('Copied to clipboard. Paste into Excel or Sheets.');

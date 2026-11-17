@@ -44,7 +44,17 @@ After you have installed Extendo on your Chrome browser
 The side panel has three tabs:
 
 - **Downloads**: the joined table. Click a deal to open it on Citi and download its
-  latest statement. Citi rows missing from the deal map have a **Map…** link.
+  latest reports. After the deal opens, a question lists the latest file of every report
+  section the deal has (Bond Factor Information, Performance Loan Details, EU Risk Retention
+  Reporting, Certificate Holders Statement, Enhanced Loan-Level Data) as checkboxes.
+  Tick the files you want, then click **Yes**. The next deal starts with the same sections
+  ticked (Certificate Holders Statement until you first choose). Sections the deal doesn't
+  have are greyed out and keep their last tick.
+  The first time, Chrome may ask to allow Citi to download multiple files. Allow it.
+  Citi rows missing from the deal map have a **Map…** link.
+  **Build table (no SecOps)** skips SecOps and joins Citi's table with the deal map only,
+  so you don't need to be logged into SecOps. Every mapped row is shown with its deal, and
+  **Not Yet Available in GCP** says **Unknown**.
 - **Issues**: Citi deals from SecOps (`config.js` → `issues.include`) that no deal map
   entry points to. Filled in by **Build table**, or fetch on its own. **Map…** opens the
   Mappings tab with a suggested entry (issuer guessed from other deals on the same shelf).
@@ -79,8 +89,9 @@ What the mock data covers:
 - **Downloads**: matched rows (Waiting rows sort first), a row matched despite case and
   whitespace differences, a mapped deal that SecOps doesn't return, and an unmapped row
   with **Map…**. Clicking a deal opens its Reports page in the iframe (after a 1s delay)
-  and offers the Oct 2026 Certificate Holders Statement as a PDF. JPMMT 2024-10 has no
-  statement.
+  and offers the latest file of each ticked section as a PDF. The page has all five sections
+  with different latest months (EU Risk Retention Reporting only on even deal ids).
+  JPMMT 2024-10 has no Certificate Holders Statement.
 - **Issues**: two unmapped Citi deals. COLT 2026-9 gets a suggested issuer and EXMT 2026-1
   doesn't. A non-Citi deal is filtered out.
 - **SecOps login**: each tab keeps its own token, so two tabs can be signed in as alice

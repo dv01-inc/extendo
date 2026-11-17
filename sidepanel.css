@@ -159,9 +159,29 @@ button.link {
   background: var(--stripe);
 }
 
-#prompt-text {
+#prompt-text,
+#prompt-list {
   flex: 1 1 100%;
+  margin: 0;
+}
+
+#prompt-text {
   font-weight: 600;
+}
+
+#prompt-list {
+  padding: 0;
+  list-style: none;
+}
+
+#prompt-list label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#prompt-list .unavailable {
+  color: var(--muted);
 }
 
 table {
