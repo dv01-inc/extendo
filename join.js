@@ -17,9 +17,11 @@ export function getCell(row, header) {
   return key === undefined ? undefined : row[key];
 }
 
+// `deals: null` joins against the deal map only (SecOps not fetched): every mapped row
+// matches, paired with a stand-in deal that has just its id, and is flagged `noSecOps`.
 export function joinRows({ citiRows, deals, mapEntries, issuerColumn, seriesColumn, dealIdField }) {
   const dealIdByKey = new Map(mapEntries.map((m) => [mapKey(m.issuer, m.series), String(m.dealId)]));
-  const dealsById = new Map(deals.map((d) => [String(getField(d, dealIdField)), d]));
+  const dealsById = deals && new Map(deals.map((d) => [String(getField(d, dealIdField)), d]));
 
   const matched = [];
   const unmapped = [];
@@ -33,6 +35,10 @@ export function joinRows({ citiRows, deals, mapEntries, issuerColumn, seriesColu
       unmapped.push({ issuer, series });
       continue;
     }
+    if (!dealsById) {
+      matched.push({ citi: row, secOps: dealStub(dealIdField, dealId), noSecOps: true });
+      continue;
+    }
     const deal = dealsById.get(dealId);
     if (!deal) {
       missingDeal.push({ issuer, series, dealId });
@@ -43,9 +49,17 @@ export function joinRows({ citiRows, deals, mapEntries, issuerColumn, seriesColu
   return { matched, unmapped, missingDeal };
 }
 
-export function project({ citi, secOps }, output) {
+// A deal with only `dealIdField` (a dotted path) set, e.g. {dealName: 'SEMT 2020-1'}.
+function dealStub(dealIdField, dealId) {
+  return dealIdField.split('.').reduceRight((v, k) => ({ [k]: v }), dealId);
+}
+
+// Columns with a `noSecOps` value show it instead when the row was joined without SecOps.
+export function project({ citi, secOps, noSecOps }, output) {
   return output.map((col) => {
-    const v = col.value
+    const v = noSecOps && col.noSecOps !== undefined
+      ? col.noSecOps
+      : col.value
       ? col.value(citi, secOps)
       : col.from === 'citi'
         ? getCell(citi, col.field)

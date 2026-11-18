@@ -159,9 +159,67 @@ button.link {
   background: var(--stripe);
 }
 
-#prompt-text {
+#prompt-text,
+#prompt-warning,
+#prompt-list {
   flex: 1 1 100%;
+  margin: 0;
+}
+
+#prompt-text {
   font-weight: 600;
+}
+
+#prompt-warning,
+#prompt-list .stale-note {
+  color: var(--error);
+}
+
+#prompt-list {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 4px 8px;
+  align-items: center;
+  padding: 0;
+  list-style: none;
+}
+
+/* Each row lays out its checkbox, range and months on the list's grid. */
+#prompt-list li {
+  display: contents;
+}
+
+#prompt-list label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#prompt-list select {
+  font: inherit;
+}
+
+#prompt-list .months {
+  font-variant-numeric: tabular-nums;
+}
+
+#prompt-list .stale .months {
+  color: var(--error);
+  font-weight: 600;
+}
+
+#prompt-list .stale-note {
+  grid-column: 2 / -1;
+  margin-top: -2px;
+  font-size: 12px;
+}
+
+#prompt-list .unavailable > span {
+  grid-column: 2 / -1;
+}
+
+#prompt-list .unavailable {
+  color: var(--muted);
 }
 
 table {
@@ -186,6 +244,13 @@ th {
 
 td a {
   color: var(--link);
+}
+
+/* While Citi is busy (claimCiti in sidepanel.js), deal links can't be clicked. */
+#result.citi-busy a.deal-link {
+  color: var(--muted);
+  text-decoration: none;
+  pointer-events: none;
 }
 
 tbody tr:nth-child(even) {

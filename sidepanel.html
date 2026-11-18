@@ -18,11 +18,17 @@
     <section role="tabpanel" id="panel-downloads" aria-labelledby="tab-downloads">
       <header>
         <button id="run">Build table</button>
+        <button id="run-no-secops" title="Join Citi's table with the deal map only, without fetching SecOps">
+          Build table (no SecOps)
+        </button>
         <button id="copy" disabled>Copy (TSV)</button>
       </header>
       <p id="status">Log into SecOps, open Citi, then click “Build table”.</p>
+      <button id="download-stop" hidden>Stop downloads</button>
       <div id="prompt" hidden>
         <span id="prompt-text"></span>
+        <p id="prompt-warning" hidden></p>
+        <ul id="prompt-list"></ul>
         <button id="prompt-yes">Yes</button>
         <button id="prompt-no">No</button>
       </div>
