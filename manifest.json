@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Extendo (dev)",
-  "version": "1.0.1",
-  "version_name": "1.0.1-dev",
+  "version": "1.0.2",
+  "version_name": "1.0.2-dev",
   "description": "Joins Citi's issuer/series table with deal data from SecOps in a side panel.",
   "action": {
     "default_title": "Open Extendo"
