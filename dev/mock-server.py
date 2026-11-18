@@ -17,7 +17,8 @@ Citi (port 8765)
     deal's Reports page (slowly, to exercise polling), so the side panel's Back handling
     walks iframe history.
   - Reports page: one table, sections headed by a single wide cell, year rows of month
-    links to PDFs. Has all five configured sections, each with a different latest month;
+    links to PDFs. Has all five configured sections, each with a different newest month
+    (Bond Factor Information reaches Nov 2026 and goes back to 2024; the rest stop earlier);
     "Enhanced Loan-Level Data" has a "(report legends)" link in its heading, like the real
     page. A later-dated "Monthly Remittance Report" section checks that unconfigured
     sections are ignored. Deals with "reports": false lack the Certificate Holders
@@ -136,7 +137,7 @@ def citi_deals():
 def report_section(label, deal_id, years, heading_extra=""):
     """A heading row, then one row per year of month links. years: {year: last_month}."""
     slug = label.lower().replace(" ", "-")
-    # Cells on separate lines, as in real HTML: findLatestStatements reads the year from the
+    # Cells on separate lines, as in real HTML: findStatements reads the year from the
     # row's text, which needs whitespace between "2026" and "Jan".
     out = f'\n<tr><td class="section" colspan="13">{html.escape(label)}{heading_extra}</td></tr>'
     for year, last in years.items():
@@ -152,7 +153,7 @@ def citi_reports(deal_id):
     row = ROWS_BY_ID.get(deal_id)
     if not row:
         return page("Not found", f"<div class='page'>No deal {deal_id}.</div>")
-    sections = report_section("Bond Factor Information", deal_id, {2026: 10})
+    sections = report_section("Bond Factor Information", deal_id, {2026: 11, 2025: 12, 2024: 12})
     sections += report_section("Performance Loan Details", deal_id, {2026: 9})
     if deal_id % 2 == 0:
         sections += report_section("EU Risk Retention Reporting", deal_id, {2026: 6, 2025: 12})

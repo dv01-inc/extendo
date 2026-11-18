@@ -1,5 +1,5 @@
 import { CONFIG } from './config.js';
-import { downloadLink, extractTable, fetchFromSecOps, findLatestStatements, followLink } from './injected.js';
+import { downloadLink, extractTable, fetchFromSecOps, findStatements, followLink } from './injected.js';
 import { getCell, getField, joinRows, mapKey, project, suggestMapping, unmappedDeals } from './join.js';
 import { isEdited, loadMap, resetMap, saveMap } from './mapstore.js';
 
@@ -204,7 +204,7 @@ async function waitAndFollowLink(tabId, href, timeoutMs) {
 }
 
 // Poll Citi's frames until one shows the Reports page (any configured section heading), or
-// `timeoutMs` passes. Returns the latest file of each section found there, or null.
+// `timeoutMs` passes. Returns each section found there with its files, or null.
 async function waitForStatements(tabId, timeoutMs) {
   const labels = CONFIG.citi.statements.map((s) => s.label);
   const deadline = Date.now() + timeoutMs;
@@ -214,7 +214,7 @@ async function waitForStatements(tabId, timeoutMs) {
       try {
         const [{ result }] = await chrome.scripting.executeScript({
           target: { tabId, frameIds: [frame.frameId] },
-          func: findLatestStatements,
+          func: findStatements,
           args: [labels],
         });
         if (result) return result;
@@ -227,56 +227,131 @@ async function waitForStatements(tabId, timeoutMs) {
   return null;
 }
 
-// Sections ticked the last time the download question was answered Yes, saved in
-// chrome.storage.local. Until the first Yes, the sections marked `default: true` in config.
+// How many of a section's newest files to download (null: all of them). Counts files the
+// deal has, not calendar months.
+const RANGES = [
+  { label: 'Latest', count: 1 },
+  { label: 'Last 3', count: 3 },
+  { label: 'Last 6', count: 6 },
+  { label: 'Last 12', count: 12 },
+  { label: 'All', count: null },
+];
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const monthName = ({ year, month }) => `${MONTHS[month]} ${year}`;
+const monthIndex = ({ year, month }) => year * 12 + month;
+
+// Per-section choices from the last time the download question was answered Yes, saved in
+// chrome.storage.local as {label: {checked, count}}. Until the first Yes, the sections
+// marked `default: true` in config are ticked, all with Latest.
 const PICKS_KEY = 'statementPicks';
 async function loadPicks() {
   const { [PICKS_KEY]: saved } = await chrome.storage.local.get(PICKS_KEY);
-  return new Set(saved ?? CONFIG.citi.statements.filter((s) => s.default).map((s) => s.label));
+  // Earlier versions saved an array of ticked labels (always the latest file).
+  const entries = Array.isArray(saved)
+    ? saved.map((label) => [label, { checked: true, count: 1 }])
+    : Object.entries(saved ?? {});
+  const picks = new Map(entries);
+  if (!saved) {
+    for (const s of CONFIG.citi.statements) if (s.default) picks.set(s.label, { checked: true, count: 1 });
+  }
+  return picks;
 }
 
-// Ask which of a deal's files to download, as a checkbox per configured section: files found
-// start ticked if their section is in `picks`, sections the deal lacks are shown disabled.
-// Resolves to the ticked files, or null for No. A newer question (from another deal click)
+// Ask which of a deal's files to download: per configured section a checkbox, a range
+// (RANGES) and the months it covers. A section whose newest file is older than the current
+// month is flagged, since that month's file should normally be out. Sections the deal lacks
+// are shown disabled. Resolves to [{label, checked, count, files}] for the sections offered
+// (files: the ones in range), or null for No. A newer question (from another deal click)
 // answers the pending one with No.
 let answerPrompt = null;
-function askWhichFiles(files, picks) {
+function askWhichFiles(sections, picks) {
   answerPrompt?.(null);
+  const now = new Date();
+  const current = { year: now.getFullYear(), month: now.getMonth() };
   const choices = [];
+
   const update = () => {
-    const n = choices.filter((c) => c.box.checked).length;
+    let total = 0;
+    const staleTicked = [];
+    for (const c of choices) {
+      c.files = c.section.files.slice(0, c.count ?? undefined);
+      const newest = c.files[0];
+      const oldest = c.files[c.files.length - 1];
+      c.detail.textContent =
+        c.files.length === 1
+          ? monthName(newest)
+          : `${monthName(oldest)} – ${monthName(newest)} · ${c.files.length} files`;
+      if (c.box.checked) {
+        total += c.files.length;
+        if (c.stale) staleTicked.push(c.section.label);
+      }
+    }
     $('prompt-text').textContent =
-      n === 0 ? 'No files ticked.' : n === 1 ? 'Download this file?' : `Download these ${n} files?`;
-    $('prompt-yes').disabled = n === 0;
+      total === 0 ? 'No files ticked.' : total === 1 ? 'Download this file?' : `Download these ${total} files?`;
+    $('prompt-warning').textContent = staleTicked.length
+      ? `No ${monthName(current)} file yet for: ${staleTicked.join(', ')}. The newest one there is older.`
+      : '';
+    $('prompt-warning').hidden = !staleTicked.length;
+    $('prompt-yes').disabled = total === 0;
   };
+
   const items = CONFIG.citi.statements.map(({ label }) => {
-    const file = files.find((f) => f.label === label);
+    const li = el('li');
+    const section = sections.find((s) => s.label === label);
     const box = el('input');
     box.type = 'checkbox';
-    const row = el('label');
-    if (file) {
-      box.checked = picks.has(label);
-      box.addEventListener('change', update);
-      choices.push({ box, file });
-      row.append(box, file.title);
-    } else {
+    const name = el('label');
+    name.append(box, label);
+    if (!section) {
       box.disabled = true;
-      row.className = 'unavailable';
-      row.append(box, `${label} (not on this deal)`);
+      li.className = 'unavailable';
+      li.append(name, el('span', 'not on this deal'));
+      return li;
     }
-    const li = el('li');
-    li.appendChild(row);
+
+    const pick = picks.get(label) ?? { checked: false, count: 1 };
+    box.checked = pick.checked;
+    const range = el('select');
+    RANGES.forEach((r, i) => {
+      const option = el('option', r.label);
+      option.value = String(i);
+      option.selected = r.count === pick.count;
+      range.appendChild(option);
+    });
+    const detail = el('span');
+    detail.className = 'months';
+    const choice = { section, box, detail, count: pick.count };
+    choice.stale = monthIndex(section.files[0]) < monthIndex(current);
+
+    li.append(name, range, detail);
+    if (choice.stale) {
+      li.classList.add('stale');
+      const warning = el('span', `no ${monthName(current)} file yet`);
+      warning.className = 'stale-note';
+      li.appendChild(warning);
+    }
+    box.addEventListener('change', update);
+    range.addEventListener('change', () => {
+      choice.count = RANGES[+range.value].count;
+      update();
+    });
+    choices.push(choice);
     return li;
   });
+
   $('prompt-list').replaceChildren(...items);
-  $('prompt-list').hidden = false;
   update();
   $('prompt').hidden = false;
   return new Promise((resolve) => {
     answerPrompt = (yes) => {
       answerPrompt = null;
       $('prompt').hidden = true;
-      resolve(yes ? choices.filter((c) => c.box.checked).map((c) => c.file) : null);
+      resolve(
+        yes
+          ? choices.map((c) => ({ label: c.section.label, checked: c.box.checked, count: c.count, files: c.files }))
+          : null,
+      );
     };
   });
 }
@@ -285,42 +360,84 @@ $('prompt-no').addEventListener('click', () => answerPrompt?.(false));
 
 const DOWNLOAD_GAP_MS = 500;
 
-// After a deal opens on Citi, offer the latest file of each report section on it to pick from.
-async function offerLatestStatements(tabId) {
-  setStatus('Looking for the latest reports…');
-  const found = await waitForStatements(tabId, 15000);
-  if (!found) {
+// The Citi operation in progress (a table build, or a deal opening or downloading), or null.
+// While one is in progress, deal links and the Build buttons are disabled: each would move
+// Citi's tab away from the page being read. A deal releases Citi while its download question
+// is showing, so picking another deal (or building) then just answers the question No.
+let citiOwner = null;
+function claimCiti(op) {
+  if (citiOwner && citiOwner !== op) return false;
+  citiOwner = op;
+  showCitiBusy();
+  return true;
+}
+function releaseCiti(op) {
+  if (citiOwner !== op) return;
+  citiOwner = null;
+  showCitiBusy();
+}
+function showCitiBusy() {
+  const busy = citiOwner !== null;
+  $('result').classList.toggle('citi-busy', busy);
+  $('run').disabled = busy;
+  $('run-no-secops').disabled = busy;
+}
+
+// Bumped by Stop downloads to end the download loop in progress.
+let downloadRun = 0;
+$('download-stop').addEventListener('click', () => {
+  downloadRun++;
+  $('download-stop').hidden = true;
+});
+
+// After a deal opens on Citi, offer the files of each report section on it to pick from.
+// `op` holds Citi (claimCiti) until the question shows, and again while downloading.
+async function offerStatements(tabId, op) {
+  setStatus('Looking for reports…');
+  const sections = await waitForStatements(tabId, 15000);
+  if (!sections) {
     setStatus('Opened deal on Citi. No report sections found on it.');
     return;
   }
-  const missing = CONFIG.citi.statements.map((s) => s.label).filter((l) => !found.some((f) => f.label === l));
-  console.log('Extendo: report sections', found, 'missing', missing);
-  if (!found.length) {
+  console.log('Extendo: report sections', sections);
+  if (!sections.length) {
     setStatus('Opened deal on Citi. Its report sections have no files.');
     return;
   }
   setStatus('Opened deal on Citi.');
 
   const picks = await loadPicks();
-  const files = await askWhichFiles(found, picks);
-  if (!files) return;
-  // Remember the choice for the sections this deal offered; sections it lacked keep their
-  // previous state, since they couldn't be changed here.
-  for (const f of found) picks.delete(f.label);
-  for (const f of files) picks.add(f.label);
-  await chrome.storage.local.set({ [PICKS_KEY]: [...picks] });
+  releaseCiti(op);
+  const choices = await askWhichFiles(sections, picks);
+  // No, or another deal or build took over while the question was showing.
+  if (!choices || !claimCiti(op)) return;
+  // Remember the choices for the sections this deal offered; sections it lacked keep their
+  // previous state, since they couldn't be changed here. Re-read first so a save made while
+  // the question was showing isn't overwritten.
+  const saved = await loadPicks();
+  for (const { label, checked, count } of choices) saved.set(label, { checked, count });
+  await chrome.storage.local.set({ [PICKS_KEY]: Object.fromEntries(saved) });
 
+  const files = choices
+    .filter((c) => c.checked)
+    .flatMap((c) => c.files.map((f) => ({ ...f, title: `${monthName(f)} ${c.label}` })));
+  const run = ++downloadRun;
+  $('download-stop').hidden = false;
   const failed = [];
+  let started = 0;
   for (const [i, file] of files.entries()) {
     // Space the downloads out; Chrome may drop clicks that arrive together.
     if (i > 0) await sleep(DOWNLOAD_GAP_MS);
+    if (run !== downloadRun) break;
     setStatus(`Downloading ${i + 1} of ${files.length}: ${file.title}…`);
-    if (!(await tryFollowLink(tabId, file.href, downloadLink))) failed.push(file.title);
+    if (await tryFollowLink(tabId, file.href, downloadLink)) started++;
+    else failed.push(file.title);
   }
+  const stopped = run !== downloadRun;
+  $('download-stop').hidden = true;
+  const summary = `Started ${started} of ${files.length} download${files.length === 1 ? '' : 's'}${stopped ? ' (stopped)' : ''}.`;
   setStatus(
-    failed.length
-      ? `Could not find these links anymore: ${failed.join(', ')}.`
-      : `Downloading ${files.length} file${files.length === 1 ? '' : 's'}.`,
+    failed.length ? `${summary} Could not find these links anymore: ${failed.join(', ')}.` : summary,
     failed.length > 0,
   );
 }
@@ -330,6 +447,8 @@ async function offerLatestStatements(tabId) {
 const MAX_BACK_STEPS = 3;
 async function openOnCiti(citiTable, href) {
   const { tabId } = citiTable;
+  const op = {};
+  if (!claimCiti(op)) return;
   answerPrompt?.(null);
   try {
     let opened = await tryFollowLink(tabId, href);
@@ -340,13 +459,15 @@ async function openOnCiti(citiTable, href) {
     }
     if (!opened) throw new Error('could not find the deal list. Go back to it on Citi, then retry.');
     await chrome.tabs.update(tabId, { active: true });
-    await offerLatestStatements(tabId);
+    await offerStatements(tabId, op);
   } catch (e) {
-    setStatus(`Could not open deal on citi: ${e.message}`, true);
+    setStatus(`Could not open deal on Citi: ${e.message}`, true);
+  } finally {
+    releaseCiti(op);
   }
 }
 
-// Cells are strings, or {text, onClick} for links.
+// Cells are strings, or {text, onClick, className?} for links.
 function renderTable(headers, rows) {
   const table = el('table');
   const headRow = table.createTHead().insertRow();
@@ -361,6 +482,7 @@ function renderTable(headers, rows) {
       } else {
         const a = el('a', c.text);
         a.href = '#';
+        if (c.className) a.className = c.className;
         a.addEventListener('click', (e) => {
           e.preventDefault();
           c.onClick();
@@ -398,7 +520,7 @@ function render({ matched, unmapped, missingDeal }, citiTable) {
   const cells = rows.map((r, i) =>
     r.map((text, j) => {
       const href = CONFIG.output[j].linkFrom && getCell(matched[i].citi._links ?? {}, CONFIG.output[j].linkFrom);
-      return href ? { text, onClick: () => openOnCiti(citiTable, href) } : text;
+      return href ? { text, onClick: () => openOnCiti(citiTable, href), className: 'deal-link' } : text;
     }),
   );
 
@@ -451,8 +573,9 @@ function renderBuild() {
 // withSecOps false: build from Citi's table and the deal map alone (no SecOps login needed);
 // SecOps-derived columns show their `noSecOps` value.
 async function run(withSecOps) {
-  const buttons = [$('run'), $('run-no-secops')];
-  buttons.forEach((b) => (b.disabled = true));
+  const op = {};
+  if (!claimCiti(op)) return;
+  answerPrompt?.(null);
   try {
     await requestHostAccess();
     let deals = null;
@@ -471,7 +594,7 @@ async function run(withSecOps) {
   } catch (e) {
     setStatus(e.message, true);
   } finally {
-    buttons.forEach((b) => (b.disabled = false));
+    releaseCiti(op);
   }
 }
 

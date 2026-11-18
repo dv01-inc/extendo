@@ -52,15 +52,16 @@ export function followLink(href) {
 }
 
 // Runs in each frame of Citi after a deal is opened (the deal's Reports page). For each of
-// `labels` found, returns the most recent file as {label, title, href, candidates}. Returns
-// null if the frame shows none of the headings (not the Reports page, or not loaded yet).
+// `labels` with at least one file, returns {label, files}: files are {href, year, month}
+// (month 0-11), newest first. Returns null if the frame shows none of the headings (not the
+// Reports page, or not loaded yet).
 //
 // The Reports page is one table split into sections: a heading row (a single wide cell,
 // e.g. "Certificate Holders Statement"), then one row per year whose cells are month
 // links ("Jan".."Dec") to the files. A section is the rows under its heading, up to the
 // next heading. A heading matches its label exactly or followed by a bracketed note, e.g.
 // "Enhanced Loan-Level Data (report legends)".
-export function findLatestStatements(labels) {
+export function findStatements(labels) {
   const clean = (s) => (s ?? '').replace(/\s+/g, ' ').trim();
   const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
   const isHeading = (tr) => tr.cells.length === 1 && tr.cells[0].colSpan > 1;
@@ -77,23 +78,18 @@ export function findLatestStatements(labels) {
     if (!heading) continue;
     seenAny = true;
 
-    const candidates = [];
+    const files = [];
     for (let tr = heading.nextElementSibling; tr && !isHeading(tr); tr = tr.nextElementSibling) {
       const year = clean(tr.textContent).match(/\b(\d{4})\b/)?.[1];
       if (!year) continue;
       for (const a of tr.querySelectorAll('a[href]')) {
         const month = months.indexOf(clean(a.textContent).slice(0, 3).toLowerCase());
-        if (month < 0) continue;
-        candidates.push({
-          title: `${clean(a.textContent)} ${year} ${label}`,
-          href: a.getAttribute('href'),
-          date: +year * 12 + month,
-        });
+        if (month >= 0) files.push({ href: a.getAttribute('href'), year: +year, month });
       }
     }
-    if (!candidates.length) continue;
-    const latest = candidates.reduce((a, b) => (b.date > a.date ? b : a));
-    found.push({ label, title: latest.title, href: latest.href, candidates });
+    if (!files.length) continue;
+    files.sort((a, b) => b.year * 12 + b.month - (a.year * 12 + a.month));
+    found.push({ label, files });
   }
   return seenAny ? found : null;
 }

@@ -47,7 +47,7 @@ flowchart LR
   MS -. "seed / reset" .-> BUNDLE
   BG -- "webRequest: copy Authorization header" --> SS
   SP -- "read token" --> SS
-  SP -- "executeScript(extractTable, followLink,<br/>findLatestStatements, downloadLink)" --> CITI
+  SP -- "executeScript(extractTable, followLink,<br/>findStatements, downloadLink)" --> CITI
   SP -- "executeScript MAIN world (fetchFromSecOps)" --> SEC
   SEC -- "fetch with tab's session" --> API
   SP -. "fallback: direct fetch with captured token" .-> API
@@ -89,12 +89,25 @@ The side panel does all the work. It never scrapes with network calls of its own
    `project()` turns `matched` into output columns from `CONFIG.output`.
 5. Clicking a linked cell calls `openOnCiti()`. It follows the link in whichever frame shows
    it, going back in history up to 3 times if Citi has moved on. It then polls
-   `findLatestStatements` until the Reports page shows any configured section heading.
-   `askWhichFiles()` lists the latest file of every section found as checkboxes, with
-   missing sections disabled. Pre-ticks come from the last Yes
-   (`chrome.storage.local['statementPicks']`, updated only for sections that deal offered),
-   or `default: true` in config before the first one. No leaves them unchanged. Yes runs
-   `downloadLink` for each ticked file, with a 500 ms gap between them (`DOWNLOAD_GAP_MS`).
+   `findStatements` until the Reports page shows any configured section heading. It returns
+   each section's files `{href, year, month}`, newest first. `askWhichFiles()` shows one row
+   per configured section: a checkbox, a range from `RANGES` (Latest / Last 3 / 6 / 12 / All,
+   counting files, not calendar months), and the months covered. **A section whose newest
+   file is older than the current month is flagged** (an older "latest" is a likely
+   problem), with a summary warning when such a section is ticked. Missing sections are
+   disabled. Choices `{checked, count}` per label come from the last Yes
+   (`chrome.storage.local['statementPicks']`, updated only for sections that deal offered;
+   an older array-of-labels value is read as Latest), or `default: true` in config before
+   the first one. No leaves them unchanged. Yes runs `downloadLink` for each file, with a
+   500 ms gap (`DOWNLOAD_GAP_MS`). **Stop downloads** ends the loop (`downloadRun`).
+
+**One Citi operation at a time.** A table build, a deal opening and a deal's downloads each
+claim Citi's tab (`claimCiti` / `releaseCiti`). While one holds it, deal links and the Build
+buttons are disabled, because each would navigate Citi away from the page being read and a
+still-running poll would read the wrong deal. A deal releases Citi while its question is
+showing, so picking another deal or building then answers the question No. Anything new
+that drives Citi's tab should claim it the same way. The user can still navigate the Citi tab
+directly; downloads whose links are gone are reported as failed.
    A heading matches its label exactly or followed by a bracketed note
    ("Enhanced Loan-Level Data (report legends)"). To add a report type, add its heading to
    `CONFIG.citi.statements`.
@@ -148,6 +161,10 @@ Issues.
 
 - Every URL `config.js` uses must be in `manifest.json` `host_permissions`, including Citi's
   iframe origin.
+  That includes the mock Citi iframe, `http://127.0.0.1:8765/*`: it looks like a duplicate
+  of `localhost:8765`, but it's a different origin, and without it the mock deal table can't
+  be read ("Frames not readable"). The release workflow strips all mock hosts, so keeping
+  them costs nothing.
 - Functions in `injected.js` must not reference imports or outer variables.
 - `MOCK_CITI` and `MOCK_SECOPS` must be `false` when committing. The release workflow refuses
   to ship either as `true`.

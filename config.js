@@ -17,9 +17,10 @@ export const CONFIG = {
     // first <table> in any frame that has both headers is used.
     issuerColumn: 'Issuer',
     seriesColumn: 'Series',
-    // Report sections on a deal's Reports page. After a deal is opened, the latest month of
-    // each section it has is offered for download as a checkbox. The ticks from the last
-    // download are remembered; before the first one, `default: true` sections start ticked.
+    // Report sections on a deal's Reports page. After a deal is opened, each section it has
+    // is offered for download with a checkbox and a range (Latest, Last 3/6/12, All). The
+    // choices from the last download are remembered; before the first one, `default: true`
+    // sections start ticked with Latest.
     statements: [
       { label: 'Bond Factor Information' },
       { label: 'Performance Loan Details' },

@@ -44,12 +44,17 @@ After you have installed Extendo on your Chrome browser
 The side panel has three tabs:
 
 - **Downloads**: the joined table. Click a deal to open it on Citi and download its
-  latest reports. After the deal opens, a question lists the latest file of every report
-  section the deal has (Bond Factor Information, Performance Loan Details, EU Risk Retention
-  Reporting, Certificate Holders Statement, Enhanced Loan-Level Data) as checkboxes.
-  Tick the files you want, then click **Yes**. The next deal starts with the same sections
-  ticked (Certificate Holders Statement until you first choose). Sections the deal doesn't
-  have are greyed out and keep their last tick.
+  reports. After the deal opens, a question lists every report section the deal has (Bond
+  Factor Information, Performance Loan Details, EU Risk Retention Reporting, Certificate
+  Holders Statement, Enhanced Loan-Level Data). Each has a checkbox and a range:
+  **Latest**, **Last 3**, **Last 6**, **Last 12** or **All** (counting the files the deal
+  has, newest first). Each row shows the months it covers, e.g. "Oct 2026" or
+  "Aug 2026 – Oct 2026 · 3 files". **If a section's newest file is older than the current
+  month, the row is flagged in red** ("no Nov 2026 file yet"), and a warning appears at
+  the top if that section is ticked. Click **Yes** to download. **Stop downloads** ends a
+  long run early. The next deal starts with the same ticks and ranges (Certificate Holders
+  Statement, Latest, until you first choose). Sections the deal doesn't have are greyed out
+  and keep their last choice.
   The first time, Chrome may ask to allow Citi to download multiple files. Allow it.
   Citi rows missing from the deal map have a **Map…** link.
   **Build table (no SecOps)** skips SecOps and joins Citi's table with the deal map only,
@@ -89,8 +94,10 @@ What the mock data covers:
 - **Downloads**: matched rows (Waiting rows sort first), a row matched despite case and
   whitespace differences, a mapped deal that SecOps doesn't return, and an unmapped row
   with **Map…**. Clicking a deal opens its Reports page in the iframe (after a 1s delay)
-  and offers the latest file of each ticked section as a PDF. The page has all five sections
-  with different latest months (EU Risk Retention Reporting only on even deal ids).
+  and offers its report sections for download as PDFs. The page has all five sections with
+  different newest months: Bond Factor Information has a Nov 2026 file and history back to
+  2024, while the others stop earlier and show the out-of-date warning while it's Nov 2026
+  (EU Risk Retention Reporting only on even deal ids).
   JPMMT 2024-10 has no Certificate Holders Statement.
 - **Issues**: two unmapped Citi deals. COLT 2026-9 gets a suggested issuer and EXMT 2026-1
   doesn't. A non-Citi deal is filtered out.
