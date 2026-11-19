@@ -69,6 +69,30 @@ The side panel has three tabs:
   `data/deal-map.json`; commit it there to share it or keep it as the default. **Reset**
   discards local edits and reloads `data/deal-map.json`.
 
+## Unit tests
+
+```sh
+node --test          # all tests
+CI=true node --test  # as CI runs them (also fails if a MOCK_* switch is true)
+```
+
+The tests need Node 22.12 or later and nothing else: there's no `package.json` or install
+step. They live in `test/` and cover:
+
+- `join.test.js`: the join, Issues and Map… suggestion logic in `join.js`.
+- `config.test.js`:
+  - `manifest.json` permits every URL `config.js` uses, real and mock, including the mock
+    Citi iframe on `127.0.0.1:8765`;
+  - the manifest is the dev build;
+  - `config.js` output columns and report sections are well formed;
+  - no `MOCK_*` switch is committed as true. This check is skipped locally so you can run
+    the tests while mocking.
+- `deal-map.test.js`: `data/deal-map.json` is well formed, has no duplicate
+  issuer/series, and keeps the one-entry-per-line format. If you commit an exported map and
+  this fails, the message lists the conflicting lines.
+
+GitHub runs them on every PR (`.github/workflows/test.yml`) and again before each release.
+
 ## Testing locally with mock sites
 
 `dev/mock-server.py` serves stand-ins for Citi and SecOps on localhost, so you can test

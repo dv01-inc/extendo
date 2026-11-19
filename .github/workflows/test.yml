@@ -1,0 +1,34 @@
+# Runs on every PR and push to main. Make the "test" job a required status check on main
+# (Settings → Branches) so nothing is merged, and so nothing is released, with failing tests.
+#
+# No package.json or npm install: the tests use Node's built-in runner (node --test), which
+# finds test/*.test.js on its own.
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Syntax check
+        run: |
+          for f in *.js test/*.js; do node --check "$f"; done
+          python3 -m py_compile scripts/*.py dev/*.py
+
+      # CI=true is set by GitHub Actions, so a MOCK_* switch left on fails here rather than
+      # being skipped as it is locally.
+      - name: Unit tests
+        run: node --test
