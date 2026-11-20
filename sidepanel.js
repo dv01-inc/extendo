@@ -1,5 +1,7 @@
 import { CONFIG } from './config.js';
-import { downloadLink, extractTable, fetchFromSecOps, findStatements, followLink } from './injected.js';
+import {
+  downloadLink, extractTable, fetchFromSecOps, findStatements, followLink, loadInFrame, readForm, submitForm,
+} from './injected.js';
 import { getCell, getField, joinRows, mapKey, project, suggestMapping, unmappedDeals } from './join.js';
 import { isEdited, loadMap, resetMap, saveMap } from './mapstore.js';
 
@@ -152,7 +154,15 @@ async function loadCitiTable() {
         func: extractTable,
         args: [[CONFIG.citi.issuerColumn, CONFIG.citi.seriesColumn]],
       });
-      if (result) return { tabId: tab.id, frameId: frame.frameId, rows: result.rows };
+      if (result) {
+        return {
+          tabId: tab.id,
+          frameId: frame.frameId,
+          listUrl: frame.url,
+          dealForm: await readDealForm(tab.id, frame.frameId),
+          rows: result.rows,
+        };
+      }
     } catch (e) {
       blocked.push(frame.url);
     }
@@ -162,6 +172,23 @@ async function loadCitiTable() {
     `No table with "${CONFIG.citi.issuerColumn}" and "${CONFIG.citi.seriesColumn}" columns found on Citi.` +
       (blocked.length ? ` Frames not readable (add their hosts to host_permissions): ${blocked.join(', ')}` : ''),
   );
+}
+
+// The form Citi's deal links submit (CONFIG.citi.dealForm), copied from the table's frame,
+// or null. Without it, opening a deal needs the table on screen.
+async function readDealForm(tabId, frameId) {
+  if (!CONFIG.citi.dealForm) return null;
+  try {
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId, frameIds: [frameId] },
+      func: readForm,
+      args: [CONFIG.citi.dealForm.name],
+    });
+    if (!result) console.log(`Extendo: no form "${CONFIG.citi.dealForm.name}" next to Citi's table`);
+    return result;
+  } catch {
+    return null;
+  }
 }
 
 function el(tag, text) {
@@ -442,8 +469,60 @@ async function offerStatements(tabId, op) {
   );
 }
 
-// Follow a link from Citi's table. If Citi has moved on from the table (e.g. a previous
-// click opened a deal), go back until the table is showing again, then follow it.
+// Watches for frame `frameId` of `tabId` to start showing a new document. `committed`
+// resolves true when it does, or false after `timeoutMs` or cancel(). Start watching before
+// triggering the navigation so a fast one isn't missed.
+function watchFrameCommit(tabId, frameId, timeoutMs) {
+  let finish;
+  const committed = new Promise((resolve) => {
+    const listener = (d) => {
+      if (d.tabId === tabId && d.frameId === frameId) finish(true);
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    finish = (ok) => {
+      clearTimeout(timer);
+      chrome.webNavigation.onCommitted.removeListener(listener);
+      resolve(ok);
+    };
+    chrome.webNavigation.onCommitted.addListener(listener);
+  });
+  return { committed, cancel: () => finish(false) };
+}
+
+// Runs `func(...args)` in the frame that held Citi's table while watching it navigate.
+// Returns true once the frame shows a new document (so nothing reads the page it left).
+async function navigateTableFrame({ tabId, frameId }, func, args, timeoutMs) {
+  const watch = watchFrameCommit(tabId, frameId, timeoutMs);
+  let started = false;
+  try {
+    [{ result: started }] = await chrome.scripting.executeScript({
+      target: { tabId, frameIds: [frameId] },
+      func,
+      args,
+    });
+  } catch {
+    // The frame is gone (Citi navigated away entirely) or not readable.
+  }
+  if (!started) {
+    watch.cancel();
+    return false;
+  }
+  return watch.committed;
+}
+
+// Open a deal by submitting Citi's deal form (copied at build time) with the deal's id, as
+// its link would, in the frame that held the table. Works from any page in that frame, e.g.
+// the previous deal's Reports page. The id comes only from `idFromLink` (digits).
+async function submitDealForm(citiTable, href) {
+  const spec = CONFIG.citi.dealForm;
+  const id = spec && citiTable.dealForm && href.match(spec.idFromLink)?.[1];
+  if (!id || !/^\d+$/.test(id)) return false;
+  return navigateTableFrame(citiTable, submitForm, [citiTable.dealForm, { [spec.idField]: id }], 15000);
+}
+
+// Follow a link from Citi's table. If the table isn't showing (e.g. a previous click opened a
+// deal), open the deal directly by submitting Citi's deal form. Failing that, reload the deal
+// list in its frame and follow the link; as a last resort, go back in history.
 const MAX_BACK_STEPS = 3;
 async function openOnCiti(citiTable, href) {
   const { tabId } = citiTable;
@@ -452,6 +531,17 @@ async function openOnCiti(citiTable, href) {
   answerPrompt?.(null);
   try {
     let opened = await tryFollowLink(tabId, href);
+    if (!opened) {
+      setStatus('Opening deal on Citi…');
+      opened = await submitDealForm(citiTable, href);
+      if (!opened) console.log('Extendo: could not open the deal by form; reloading the deal list');
+    }
+    if (!opened && citiTable.listUrl) {
+      setStatus('Returning to the deal list on Citi…');
+      opened =
+        (await navigateTableFrame(citiTable, loadInFrame, [citiTable.listUrl], 15000)) &&
+        (await waitAndFollowLink(tabId, href, 8000));
+    }
     for (let step = 1; !opened && step <= MAX_BACK_STEPS; step++) {
       setStatus('Returning to the deal list on Citi…');
       await chrome.tabs.goBack(tabId);
