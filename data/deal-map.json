@@ -656,9 +656,7 @@
 { "issuer": "VERUS SECURITIZATION TRUST", "series": "2025-11", "dealId": "VERUS 2025-11"},
 { "issuer": "VERUS SECURITIZATION TRUST", "series": "2025-2", "dealId": "VERUS 2025-2"},
 { "issuer": "VERUS SECURITIZATION TRUST", "series": "2025-4", "dealId": "VERUS 2025-4"},
-{ "issuer": "VERUS SECURITIZATION TRUST", "series": "2025-5", "dealId": "VERUS 2025-6"},
-{ "issuer": "VERUS SECURITIZATION TRUST", "series": "2025-6", "dealId": "VERUS 2025-7"},
-{ "issuer": "VERUS SECURITIZATION TRUST", "series": "2025-7", "dealId": "VERUS 2025-8"},
-{ "issuer": "VERUS SECURITIZATION TRUST", "series": "2025-8", "dealId": "VERUS 2025-8"},
-{ "issuer": "VERUS SECURITIZATION TRUST", "series": "2025-R2", "dealId": "VERUS 2026-R2"}
+{ "issuer": "VERUS SECURITIZATION TRUST", "series": "2025-6", "dealId": "VERUS 2025-6"},
+{ "issuer": "VERUS SECURITIZATION TRUST", "series": "2025-7", "dealId": "VERUS 2025-7"},
+{ "issuer": "VERUS SECURITIZATION TRUST", "series": "2025-8", "dealId": "VERUS 2025-8"}
 ]
