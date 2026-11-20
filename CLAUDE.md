@@ -72,7 +72,9 @@ The side panel does all the work. It never scrapes with network calls of its own
 | `dev/mock-server.py`, `dev/fixtures.json` | Local stand-ins for Citi (:8765, iframe on 127.0.0.1) and SecOps (:8766). |
 | `scripts/join_deals.py` | Offline helper that proposes mappings by matching Citi `(Issuer, Series)` rows to SecOps deal names. It generated the original `data/deal-map.json`. |
 | `citi_map.csv`, `secops_deals.csv`, `citi_and_secops_deal_mapping.csv`, `deals.json` | Snapshots and outputs used for offline mapping work. `deals.json` is a SecOps `/v1/deals` response, handy for checking logic in Node. |
-| `.github/workflows/release.yml` | On merge to `main`: bump version, tag, build release zip. |
+| `test/*.test.js` | Unit tests (`node --test`): `join.js`, config/manifest rules, `data/deal-map.json`. Not shipped. |
+| `.github/workflows/test.yml` | On every PR and push to `main`: syntax checks + `node --test`. |
+| `.github/workflows/release.yml` | On merge to `main`: run tests, bump version, tag, build release zip. |
 
 ### Build table flow (Downloads tab)
 
@@ -159,6 +161,9 @@ Issues.
 
 ## Rules that must hold
 
+`test/config.test.js` and `test/deal-map.test.js` check most of these. When you add a rule
+that code can check, add a test for it.
+
 - Every URL `config.js` uses must be in `manifest.json` `host_permissions`, including Citi's
   iframe origin.
   That includes the mock Citi iframe, `http://127.0.0.1:8765/*`: it looks like a duplicate
@@ -200,6 +205,35 @@ Issues.
 
 ## Testing
 
+- **Unit tests:** `node --test` from the repo root (Node 22.12+; CI uses 24). No
+  `package.json` or install: Node's built-in runner finds `test/*.test.js`. **Run it before
+  every commit**, and add or update a test with every change to `join.js`, `config.js`,
+  `manifest.json` or `data/deal-map.json`.
+  - `test/join.test.js`: `join.js` behaviour (matching rules, `deals: null`, `project`,
+    Issues, suggestions).
+  - `test/config.test.js`: the "Rules that must hold" below that can be checked
+    mechanically:
+    - every `config.js` URL is in `host_permissions`, for all four mock-switch combinations;
+    - the release filter keeps the real hosts;
+    - the manifest is the dev build;
+    - output columns are well formed;
+    - SecOps columns have `noSecOps`;
+    - statement labels are unique.
+
+    It imports `config.js` with the mock switches rewritten, so it doesn't depend on your
+    working copy.
+  - `test/deal-map.test.js`: `data/deal-map.json` is well formed, has no duplicate
+    `(issuer, series)` keys after `normalize`, keeps the one-entry-per-line Export format,
+    and agrees with `unmappedDeals` on the `deals.json` snapshot.
+  - The "no `MOCK_*` is true" test is **skipped locally** (so you can run the suite while
+    mocking) and **fails when `CI` is set**. `CI=true node --test` reproduces CI exactly.
+  - Keep tests in `test/`, not the repo root: the release zip copies top-level `*.js`.
+  - Tests for `sidepanel.js` logic need it moved into a pure module first (see "`join.js`
+    stays pure"). DOM tests for `injected.js` would need a dependency like jsdom, so discuss
+    that first (see "No build step").
+- **CI:** `.github/workflows/test.yml` runs syntax checks (`node --check`, `py_compile`) and
+  `node --test` on every PR and push to `main`. `release.yml` runs `node --test` again
+  before bumping the version.
 - **Mock sites:** `python3 dev/mock-server.py`, set `MOCK_CITI` / `MOCK_SECOPS = true` (either or both), reload the extension, sign
   in at http://localhost:8766/, open http://localhost:8765/, then Build table. Fixtures in
   `dev/fixtures.json` cover matched/unmapped/missing rows, issues with and without a
@@ -220,7 +254,8 @@ Issues.
 
 ## Release
 
-PR merged to `main` → `release.yml` bumps the version (PR label `major` / `minor`, default
+PRs run `test.yml`; make its `test` job a required check on `main`. PR merged to `main` →
+`release.yml` runs the unit tests, then bumps the version (PR label `major` / `minor`, default
 patch; `no-release` skips), tags `vX.Y.Z`, and publishes `extendo-vX.Y.Z.zip` with the dev name,
 `-dev` label and mock hosts stripped. Users install from the GitHub release via Load unpacked.
 

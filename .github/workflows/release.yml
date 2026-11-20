@@ -33,6 +33,14 @@ jobs:
         with:
           ref: main
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # Same tests as test.yml, in case a PR was merged without that check passing.
+      - name: Unit tests
+        run: node --test
+
       - name: Refuse to release a mock config
         run: |
           if grep -Eq '^const MOCK_[A-Z_]+ = true' config.js; then
