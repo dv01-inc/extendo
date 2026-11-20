@@ -46,7 +46,8 @@ The side panel has three tabs:
 - **Downloads**: the joined table. Click a deal to open it on Citi and download its
   reports. After the deal opens, a question lists every report section the deal has (Bond
   Factor Information, Performance Loan Details, EU Risk Retention Reporting, Certificate
-  Holders Statement, Enhanced Loan-Level Data). Each has a checkbox and a range:
+  Holders Statement, Enhanced Loan-Level Data, Supplemental Loan-Level Data, Notice to
+  Investors). Each has a checkbox and a range:
   **Latest**, **Last 3**, **Last 6**, **Last 12** or **All** (counting the files the deal
   has, newest first). Each row shows the months it covers, e.g. "Oct 2026" or
   "Aug 2026 – Oct 2026 · 3 files". **If a section's newest file is older than the current
@@ -94,10 +95,14 @@ What the mock data covers:
 - **Downloads**: matched rows (Waiting rows sort first), a row matched despite case and
   whitespace differences, a mapped deal that SecOps doesn't return, and an unmapped row
   with **Map…**. Clicking a deal opens its Reports page in the iframe (after a 1s delay)
-  and offers its report sections for download as PDFs. The page has all five sections with
-  different newest months: Bond Factor Information has a Nov 2026 file and history back to
-  2024, while the others stop earlier and show the out-of-date warning while it's Nov 2026
-  (EU Risk Retention Reporting only on even deal ids).
+  and offers its report sections for download as PDFs. As on the real site, the deal list
+  opens a deal by POSTing a hidden form (`listform`), so clicking a second deal while the
+  first one's Reports page is showing opens it directly. Each row also has a **Remove**
+  link like the real list; Extendo never uses it, and it only shows an alert here.
+  The Reports page has all seven sections with different newest months. Bond Factor
+  Information (back to 2024) and Supplemental Loan-Level Data have a Nov 2026 file. The
+  others stop earlier and show the out-of-date warning while it's Nov 2026 (EU Risk
+  Retention Reporting only on even deal ids).
   JPMMT 2024-10 has no Certificate Holders Statement.
 - **Issues**: two unmapped Citi deals. COLT 2026-9 gets a suggested issuer and EXMT 2026-1
   doesn't. A non-Citi deal is filtered out.
@@ -118,7 +123,11 @@ them out.
   no SecOps tab can run the request, and it's dropped when that tab closes, leaves SecOps,
   or gets a 401. It's never written to disk or sent to another tab.
 - **Citi**: the table lives in an iframe; a read-only extractor runs in every frame and
-  picks the first `<table>` with the configured issuer/series headers.
+  picks the first `<table>` with the configured issuer/series headers. Citi opens a deal by
+  submitting a hidden form on the deal list with the deal's id. Extendo copies that form
+  when the table is built, so clicking another deal opens it directly, even when Citi is
+  showing a different deal's Reports page, without going back to the list. If that fails,
+  it reloads the deal list and clicks the deal there.
 - **Join**: the deal map (edited in the Mappings tab, seeded from `data/deal-map.json`) maps
   (issuer, series) → SecOps deal id. Matching ignores case
   and extra whitespace. Rows that aren't in the map, or whose deal SecOps didn't return, are listed

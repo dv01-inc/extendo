@@ -51,6 +51,49 @@ export function followLink(href) {
   return true;
 }
 
+// Runs in the frame showing Citi's deal table. Returns a copy of the form named `name`
+// (where its links put the deal id before submitting it): {action, method, fields}, with
+// fields as [name, value] pairs, or null if there's no such form. Reads attributes rather
+// than form.action / form.method, which a field named "action" or "method" would shadow.
+export function readForm(name) {
+  const form = document.forms[name];
+  if (!form) return null;
+  return {
+    action: new URL(form.getAttribute('action') ?? '', location.href).href,
+    method: (form.getAttribute('method') || 'get').toLowerCase(),
+    fields: [...new FormData(form)].filter(([, v]) => typeof v === 'string'),
+  };
+}
+
+// Runs in the Citi frame that should show the next page (the one that held the deal table).
+// Submits a copy of `form` (from readForm) with `values` replacing its fields, exactly as
+// Citi's own link would, so the frame loads that deal without the table being on screen.
+// Refuses (returns false) unless the frame is on the form's own origin.
+export function submitForm(form, values) {
+  if (new URL(form.action).origin !== location.origin) return false;
+  const copy = document.createElement('form');
+  copy.method = form.method;
+  copy.action = form.action;
+  copy.hidden = true;
+  for (const [name, value] of form.fields) {
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = name;
+    input.value = Object.hasOwn(values, name) ? values[name] : value;
+    copy.appendChild(input);
+  }
+  (document.body ?? document.documentElement).appendChild(copy);
+  copy.submit();
+  return true;
+}
+
+// Runs in one Citi frame: loads `url` in it, if it's on the frame's own origin.
+export function loadInFrame(url) {
+  if (new URL(url).origin !== location.origin) return false;
+  location.href = url;
+  return true;
+}
+
 // Runs in each frame of Citi after a deal is opened (the deal's Reports page). For each of
 // `labels` with at least one file, returns {label, files}: files are {href, year, month}
 // (month 0-11), newest first. Returns null if the frame shows none of the headings (not the

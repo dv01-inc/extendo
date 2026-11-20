@@ -69,7 +69,7 @@ The side panel does all the work. It never scrapes with network calls of its own
 | `mapstore.js` | Deal map load/save/reset. `chrome.storage.local['dealMap']` if edited, else `data/deal-map.json`. |
 | `injected.js` | Functions passed to `chrome.scripting.executeScript`. **Must be self-contained** (no imports, no module scope): they are serialized into the target frame. |
 | `data/deal-map.json` | Bundled seed map: `[{ issuer, series, dealId }]`, one entry per line. `dealId` = SecOps `dealName`. |
-| `dev/mock-server.py`, `dev/fixtures.json` | Local stand-ins for Citi (:8765, iframe on 127.0.0.1) and SecOps (:8766). |
+| `dev/mock-server.py`, `dev/fixtures.json` | Local stand-ins for Citi (:8765, iframe on 127.0.0.1) and SecOps (:8766). The mock Citi opens deals like the real site: `reqDl` POSTs `listform` (`deal_id`, `issuer_id`, `cmd`). Its deal list also has a Remove link that must never be triggered. |
 | `scripts/join_deals.py` | Offline helper that proposes mappings by matching Citi `(Issuer, Series)` rows to SecOps deal names. It generated the original `data/deal-map.json`. |
 | `citi_map.csv`, `secops_deals.csv`, `citi_and_secops_deal_mapping.csv`, `deals.json` | Snapshots and outputs used for offline mapping work. `deals.json` is a SecOps `/v1/deals` response, handy for checking logic in Node. |
 | `.github/workflows/release.yml` | On merge to `main`: bump version, tag, build release zip. |
@@ -84,11 +84,24 @@ The side panel does all the work. It never scrapes with network calls of its own
    token. Auth errors (401/403) are preferred when reporting failure.
 3. `loadCitiTable()`: injects `extractTable` frame by frame, because one blocked frame would
    fail an `allFrames` call. It takes the first `<table>` that has the Issuer and Series
-   headers. Link hrefs are kept in `row._links`.
+   headers. Link hrefs are kept in `row._links`. It also copies the deal list's
+   `CONFIG.citi.dealForm` form (`readForm`) and the frame's URL (`listUrl`) into the
+   result; see step 5.
 4. `joinRows()` on the current `mapEntries` gives `{ matched, unmapped, missingDeal }`.
    `project()` turns `matched` into output columns from `CONFIG.output`.
-5. Clicking a linked cell calls `openOnCiti()`. It follows the link in whichever frame shows
-   it, going back in history up to 3 times if Citi has moved on. It then polls
+5. Clicking a linked cell calls `openOnCiti()`. If the deal list is showing, it follows the
+   link in whichever frame shows it. Otherwise (usually the previous deal's Reports page is
+   showing) it **opens the deal directly**. Citi's `javascript:reqDl(<id>)` only puts the id
+   into the hidden `deal_id` field of `listform` (alongside `issuer_id` and `cmd`) and POSTs
+   it to `ATS_DealServlet`, and the Reports page loads in the same frame
+   (`top.frames[6]`, `/stfin/jsp/pfdeallist.jsp` → `/stfin/ATS_DealServlet`). So
+   `submitDealForm()` submits a copy of that form, with only `deal_id` changed, in that
+   frame. The form has no token, and `submitForm` only runs on the form's own origin. The id
+   comes from `idFromLink` (digits only), never from a function name on the page: the
+   list's other links (`rmvDeal`) remove deals. `navigateTableFrame()` waits for the frame
+   to commit the new document (`webNavigation.onCommitted`) before anything reads it.
+   Fallbacks: load `listUrl` in that frame and follow the link, then go back in history up
+   to 3 times. It then polls
    `findStatements` until the Reports page shows any configured section heading. It returns
    each section's files `{href, year, month}`, newest first. `askWhichFiles()` shows one row
    per configured section: a checkbox, a range from `RANGES` (Latest / Last 3 / 6 / 12 / All,
@@ -188,7 +201,10 @@ Issues.
   automatically. Give it its own status element and pass its id to `setStatus`.
 - **New action on Citi:** write a self-contained function in `injected.js` and run it per
   frame via `tryFollowLink(tabId, href, action)` or a polling loop like
-  `waitForStatement`. Citi replaces iframes as it navigates, so re-list frames each attempt.
+  `waitForStatement`. Re-list frames each attempt rather than caching them. Opening deals
+  relies on the table's frame keeping its `frameId` as it navigates (true for Citi's
+  frameset). To navigate that frame and then read it, use `navigateTableFrame()`, which
+  waits for the new document, so the page it left isn't read by mistake.
 - **New SecOps data:** if it's in `/v1/deals`, just read the field. For another endpoint,
   generalise `fetchFromSecOps` / `callSecOps` rather than adding a second auth path.
 - **Deal map shape changes** (e.g. extra fields): update `parseImportedMap`, Export, the

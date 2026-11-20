@@ -13,11 +13,14 @@ What's simulated, matching what injected.js / sidepanel.js rely on:
 Citi (port 8765)
   - Outer page on localhost with the deal list in a cross-origin iframe (127.0.0.1), like
     Citi's real iframe on another host.
-  - Series cells link to `javascript:reqDl(<id>)`; reqDl navigates the iframe to the
-    deal's Reports page (slowly, to exercise polling), so the side panel's Back handling
-    walks iframe history.
+  - Series cells link to `javascript:reqDl(<id>)`. Like the real site, reqDl puts the id in
+    the hidden `deal_id` field of `listform` (with `issuer_id` and `cmd`) and POSTs it; the
+    Reports page loads in the same iframe (slowly, to exercise polling). The POST is refused
+    without `issuer_id` and `cmd`, so Extendo's copy of the form must carry every field.
+    Rows also have a "Remove" link (`javascript:if(cnfRmv(...)){rmvDeal(<id>);}`) like the
+    real list; Extendo must never trigger it, so it only shows an alert here.
   - Reports page: one table, sections headed by a single wide cell, year rows of month
-    links to PDFs. Has all five configured sections, each with a different newest month
+    links to PDFs. Has all seven configured sections, each with a different newest month
     (Bond Factor Information reaches Nov 2026 and goes back to 2024; the rest stop earlier);
     "Enhanced Loan-Level Data" has a "(report legends)" link in its heading, like the real
     page. A later-dated "Monthly Remittance Report" section checks that unconfigured
@@ -46,6 +49,8 @@ from urllib.parse import parse_qs, urlparse
 CITI_PORT = 8765
 SECOPS_PORT = 8766
 REPORTS_DELAY_S = 1.0  # how long the Reports page takes to load
+MOCK_ISSUER_ID = "42"  # listform's other hidden fields; reqDl leaves them unchanged
+MOCK_CMD = "dealrpt"
 
 FIXTURES = json.loads((Path(__file__).parent / "fixtures.json").read_text())
 ROWS_BY_ID = {row["id"]: row for row in FIXTURES["citiRows"]}
@@ -113,8 +118,10 @@ def citi_outer():
 def citi_deals():
     rows = "".join(
         f"""<tr><td>{html.escape(r['issuer'])}</td>
-<td><a href="javascript:reqDl({r['id']})">{html.escape(r['series'])}</a></td>
-<td>2026-11-25</td><td class="note">{html.escape(r.get('note', ''))}</td></tr>"""
+<td><a href="javascript:reqDl({r['id']});">{html.escape(r['series'])}</a></td>
+<td>2026-11-25</td>
+<td><a href="{html.escape(f"javascript:if(cnfRmv({json.dumps(r['issuer'].strip() + ' ' + r['series'])})){{rmvDeal({r['id']});}}")}">Remove</a></td>
+<td class="note">{html.escape(r.get('note', ''))}</td></tr>"""
         for r in FIXTURES["citiRows"]
     )
     return page(
@@ -123,13 +130,24 @@ def citi_deals():
 <!-- A layout table without the join headers, which extractTable must skip. -->
 <table><tr><td>Search deals:</td><td><input placeholder="Issuer or series"></td></tr></table>
 <table>
-  <thead><tr><th>Issuer</th><th>Series</th><th>Next Distribution</th><th>Mock note</th></tr></thead>
+  <thead><tr><th>Issuer</th><th>Series</th><th>Next Distribution</th><th>Remove</th><th>Mock note</th></tr></thead>
   <tbody>{rows}</tbody>
 </table>
+<form name="listform" method="post" action="/frame/dealservlet">
+  <input type="hidden" name="deal_id" value="-1">
+  <input type="hidden" name="issuer_id" value="{MOCK_ISSUER_ID}">
+  <input type="hidden" name="cmd" value="{MOCK_CMD}">
+</form>
 </div>
 <script>
-  // Same shape as Citi's own handler that followLink calls in the MAIN world.
-  function reqDl(id) {{ location.href = '/frame/reports?id=' + id; }}
+  // Same as Citi's own handler, which followLink calls in the MAIN world.
+  function reqDl(dlId) {{
+    document.listform.deal_id.value = dlId;
+    document.listform.submit();
+    return true;
+  }}
+  function cnfRmv(name) {{ return confirm('Remove ' + name + ' from your deal list?'); }}
+  function rmvDeal(id) {{ alert('Mock: deal ' + id + ' would have been removed. Extendo must never do this.'); }}
 </script>""",
     )
 
@@ -161,6 +179,8 @@ def citi_reports(deal_id):
         sections += report_section("Certificate Holders Statement", deal_id, {2026: 10, 2025: 12})
     legends = ' &nbsp;<a href="javascript:void(0)" style="color:#fff">(report legends)</a>'
     sections += report_section("Enhanced Loan-Level Data", deal_id, {2026: 10}, legends)
+    sections += report_section("Supplemental Loan-Level Data", deal_id, {2026: 11, 2025: 12})
+    sections += report_section("Notice to Investors", deal_id, {2026: 4})
     # A later-dated section that isn't configured: must not be picked.
     sections += report_section("Monthly Remittance Report", deal_id, {2026: 11})
     return page(
@@ -294,10 +314,6 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, citi_outer())
             if url.path == "/frame/deals":
                 return self.send(200, citi_deals())
-            if url.path == "/frame/reports":
-                time.sleep(REPORTS_DELAY_S)
-                deal_id = int(parse_qs(url.query).get("id", ["0"])[0] or 0)
-                return self.send(200, citi_reports(deal_id))
             if url.path.startswith("/files/") and url.path.endswith(".pdf"):
                 name = url.path.rsplit("/", 1)[-1]
                 return self.send(200, tiny_pdf(f"Mock statement {name}"), "application/pdf")
@@ -319,6 +335,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         port = self.server.server_address[1]
         path = urlparse(self.path).path
+        if port == CITI_PORT and path == "/frame/dealservlet":
+            length = int(self.headers.get("Content-Length") or 0)
+            form = parse_qs(self.rfile.read(length).decode())
+            field = lambda name: form.get(name, [""])[0]
+            if field("issuer_id") != MOCK_ISSUER_ID or field("cmd") != MOCK_CMD:
+                return self.send(400, page("Bad request", "<div class='page'>Missing issuer_id or cmd.</div>"))
+            time.sleep(REPORTS_DELAY_S)
+            deal_id = int(field("deal_id")) if field("deal_id").isdigit() else 0
+            return self.send(200, citi_reports(deal_id))
         if port != SECOPS_PORT:
             return self.send(404, "")
         if path == "/api/login":

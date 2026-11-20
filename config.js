@@ -17,6 +17,16 @@ export const CONFIG = {
     // first <table> in any frame that has both headers is used.
     issuerColumn: 'Issuer',
     seriesColumn: 'Series',
+    // How Citi opens a deal: its link `javascript:reqDl(<id>)` puts the id into the deal
+    // list's form `listform` (field `deal_id`) and POSTs it. Extendo copies that form when
+    // the table is built, so it can open another deal from wherever Citi is (e.g. a deal's
+    // Reports page) without going back to the list first. `idFromLink` must capture only
+    // the id (digits), never anything else from the page.
+    dealForm: {
+      name: 'listform',
+      idField: 'deal_id',
+      idFromLink: /^javascript:\s*reqDl\((\d+)\);?\s*$/,
+    },
     // Report sections on a deal's Reports page. After a deal is opened, each section it has
     // is offered for download with a checkbox and a range (Latest, Last 3/6/12, All). The
     // choices from the last download are remembered; before the first one, `default: true`
@@ -27,6 +37,8 @@ export const CONFIG = {
       { label: 'EU Risk Retention Reporting' },
       { label: 'Certificate Holders Statement', default: true },
       { label: 'Enhanced Loan-Level Data' },
+      { label: 'Supplemental Loan-Level Data' },
+      { label: 'Notice to Investors' },
     ],
   },
 
@@ -63,8 +75,9 @@ export const CONFIG = {
   output: [
     // SecOps reports 'Waiting' / 'Success'; compare case-insensitively.
     {
-      label: 'Not Yet Available in GCP',
-      value: (citiRow, deal) => deal.trusteeReportReceived?.status?.toLowerCase() === 'waiting',
+      label: 'Not Yet Available (GCP or Revver)',
+      value: (citiRow, deal) => deal.trusteeReportReceived?.status?.toLowerCase() === 'waiting' ||
+                                deal.trusteeReportRecordRevver?.status?.toLowerCase() === 'waiting',
       sort: 'desc',
       noSecOps: 'Unknown',
     },
