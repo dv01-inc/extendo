@@ -76,7 +76,7 @@ export const CONFIG = {
     // SecOps reports 'Waiting' / 'Success'; compare case-insensitively.
     {
       label: 'Not Yet Available (GCP or Revver)',
-      value: (citiRow, deal) => deal.trusteeReportReceived?.status?.toLowerCase() === 'waiting' &&
+      value: (citiRow, deal) => deal.trusteeReportReceived?.status?.toLowerCase() === 'waiting' ||
                                 deal.trusteeReportRecordRevver?.status?.toLowerCase() === 'waiting',
       sort: 'desc',
       noSecOps: 'Unknown',
